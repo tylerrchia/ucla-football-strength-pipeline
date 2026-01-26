@@ -161,7 +161,8 @@ nordbord_FINAL <- nordbord_tests %>%
   filter(leftRepetitions != 0 & rightRepetitions != 0) %>% 
   # remove extra columns
   select(-notes, -testTypeId, -modifiedDateUtc, -testDateUtc, -device, 
-         -rightCalibration, -leftCalibration, -rightRepetitions, -leftRepetitions) %>%
+         -rightCalibration, -leftCalibration, -rightRepetitions, -leftRepetitions,
+         -leftTorque, -rightTorque) %>%
   # calculate assymetry
   mutate(
     asymmetry = abs(100 * (leftMaxForce - rightMaxForce) /
