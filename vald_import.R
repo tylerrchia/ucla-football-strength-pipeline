@@ -16,10 +16,9 @@ set_start_date("2026-01-09T00:00:00Z")
 # TAKES LONG TO RUN -- RELOAD AS RDS
 
 # profiles <- get_profiles_only()
-profiles <- read_rds("~/Desktop/football 26/profiles.rds")
+# profiles <- read_rds("~/Desktop/football 26/profiles.rds")
 
 # profile_groups <- get_profiles_groups_categories_mapping()
-profile_groups <- read_rds("~/Desktop/football 26/profile_groups.rds")
 
 # profiles_with_groups <- profiles %>%
 #   left_join(profile_groups, by = "profileId") %>%
@@ -31,8 +30,8 @@ profile_groups <- read_rds("~/Desktop/football 26/profile_groups.rds")
 #     groupName = paste(unique(groupName), collapse = ", "),
 #     .groups = "drop"
 #   )
-profiles_with_groups <- read_rds("~/Desktop/football 26/profiles_with_groups.rds")
 
+profiles_with_groups <- read_rds("~/Desktop/football 26/profiles_with_groups.rds")
 # -------------------------------------------------------------------------------
 
 # pull forcedeck tests
@@ -117,19 +116,21 @@ forcedeck_avg <- forcedeck_trials %>%
     firstName = first(firstName),
     lastName = first(lastName),
     groupName = first(groupName),
+    positionName = first(positionName),
     date = first(date),
     metric_unit = first(metric_unit),
     .groups = "drop"
   )
 
 # pivot to mimic format of vald export
-forcedeck_wide <- forcedeck_avg %>%
+forcedeck_FINAL <- forcedeck_avg %>%
   pivot_wider(
     id_cols = c(
       profileId,
       firstName,
       lastName,
       groupName,
+      positionName,
       testType,
       date
     ),
@@ -139,19 +140,38 @@ forcedeck_wide <- forcedeck_avg %>%
 
 # -------------------------------------------------------------------------------
 # pull nordbord tests
+nordbord_raw <- get_nordbord_data()
+nordbord_profiles <- nordbord_raw$profiles
+nordbord_tests <- nordbord_raw$tests
+
+nordbord_FINAL <- nordbord_tests %>%
+  # rename for consistency
+  rename(
+    profileId = athleteId,
+    testType  = testTypeName
+  ) %>%
+  # join to get profile data
+  semi_join(profiles_with_groups, by = "profileId") %>%  # FILTER to team only
+  left_join(profiles_with_groups, by = "profileId") %>%  # ADD group/position
+  # reformat date
+  mutate(
+    date = format(ymd_hms(testDateUtc, tz = "UTC"), "%m/%d/%Y")
+  ) %>%
+  # make sure that a rep was actually recorded
+  filter(leftRepetitions != 0 & rightRepetitions != 0) %>% 
+  # remove extra columns
+  select(-notes, -testTypeId, -modifiedDateUtc, -testDateUtc, -device, 
+         -rightCalibration, -leftCalibration, -rightRepetitions, -leftRepetitions) %>%
+  # calculate assymetry
+  mutate(
+    asymmetry = abs(100 * (leftMaxForce - rightMaxForce) /
+      ((leftMaxForce + rightMaxForce) / 2))
+  )
+
 # -------------------------------------------------------------------------------
 # pull forceframe tests
 # -------------------------------------------------------------------------------
-# pull dynamo tests
 
 
-# forcedecks_performance_dashboard()
 # save as an .rds file to easily import into R Shiny
-
-
-
-cmj <- forcedeck_trials %>% 
-  filter(testType == "CMJ")
-
-cmj1 <- cmj %>% 
-  filter(definition_result == "BODY_WEIGHT_LBS")
+# maybe make the date that it pulls from change each time you run it and append to an rds file?
