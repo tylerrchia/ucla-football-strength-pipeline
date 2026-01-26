@@ -171,6 +171,9 @@ nordbord_FINAL <- nordbord_tests %>%
 
 # -------------------------------------------------------------------------------
 # pull forceframe tests
+forceframe_raw <- get_forceframe_data()
+forceframe_profiles <- forceframe_raw$profiles
+forceframe_tests <- forceframe_raw$tests
 # -------------------------------------------------------------------------------
 
 
