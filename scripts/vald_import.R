@@ -156,6 +156,12 @@ if (is.null(forcedeck_trials) || nrow(forcedeck_trials) == 0) {
 
 # -------------------------------------------------------------------------------
 # pull nordbord tests
+
+# need to reset if the forcedeck doesn't have data
+start_date <- format(Sys.time() - days(2), "%Y-%m-%dT00:00:00Z")
+set_start_date(start_date)
+
+
 nordbord_raw <- get_nordbord_data()
 nordbord_profiles <- nordbord_raw$profiles
 nordbord_tests <- nordbord_raw$tests
