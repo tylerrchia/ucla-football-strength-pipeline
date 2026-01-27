@@ -1,0 +1,101 @@
+/* ===== UCLA Color Palette ===== */
+:root {
+  --ucla-blue: #2774AE;
+  --ucla-gold: #FFD100;
+  --ucla-dark-blue: #003B5C;
+  --ucla-gray: #EDEDED;
+}
+
+/* ===== Navbar ===== */
+.navbar {
+  background-color: var(--ucla-blue) !important;
+  border-color: var(--ucla-dark-blue);
+}
+
+.navbar-brand,
+.navbar-nav > li > a {
+  color: white !important;
+  font-weight: 600;
+}
+
+.navbar-nav > .active > a {
+  background-color: var(--ucla-dark-blue) !important;
+  color: var(--ucla-gold) !important;
+}
+
+/* ===== Sidebar ===== */
+.well {
+  background-color: #f8fafc;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+}
+
+/* ===== Buttons ===== */
+.btn {
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.btn-default {
+  background-color: white;
+  border-color: var(--ucla-blue);
+  color: var(--ucla-blue);
+}
+
+.btn-default:hover {
+  background-color: var(--ucla-blue);
+  color: white;
+}
+
+.btn-primary {
+  background-color: var(--ucla-blue);
+  border-color: var(--ucla-blue);
+}
+
+.btn-primary:hover {
+  background-color: var(--ucla-dark-blue);
+}
+
+/* ===== Sliders ===== */
+.irs-bar,
+.irs-from,
+.irs-to {
+  background-color: var(--ucla-blue) !important;
+}
+
+.irs-handle {
+  border-color: var(--ucla-blue) !important;
+}
+
+/* ===== DataTables ===== */
+table.dataTable thead {
+  background-color: var(--ucla-blue);
+  color: white;
+}
+
+table.dataTable tbody tr.selected {
+  background-color: rgba(39, 116, 174, 0.15) !important;
+}
+
+/* ===== Player Card ===== */
+.player-card {
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid #e5e7eb;
+  background-color: white;
+}
+
+/* ===== Section Headers ===== */
+h3, h4, h5 {
+  color: var(--ucla-dark-blue);
+  font-weight: 700;
+}
+
+/* ===== Tags (Strengths / Weaknesses) ===== */
+ul {
+  padding-left: 18px;
+}
+
+ul li {
+  margin-bottom: 4px;
+}
