@@ -1,5 +1,8 @@
 name: Daily VALD Data Pull
 
+permissions:
+  contents: write
+
 on:
   schedule:
     - cron: "0 10 * * *"   # daily at 10:00 UTC
