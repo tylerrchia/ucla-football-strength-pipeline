@@ -4,6 +4,9 @@ library("lubridate")
 library("readr")
 library("dplyr")
 
+forcedeck_FINAL <- NULL
+nordbord_FINAL  <- NULL
+
 # get_config()
 set_credentials(
   client_id     = Sys.getenv("VALD_CLIENT_ID"),
