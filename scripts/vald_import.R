@@ -1,8 +1,3 @@
-r_libs <- Sys.getenv("R_LIBS_USER")
-if (nzchar(r_libs)) {
-  .libPaths(r_libs)
-}
-
 library("valdr")
 library("tidyverse")
 library("lubridate")
