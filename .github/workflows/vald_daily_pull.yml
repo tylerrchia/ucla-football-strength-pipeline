@@ -32,7 +32,7 @@ jobs:
           echo 'R_LIBS_USER="$HOME/R/library"' >> ~/.Renviron
 
           Rscript -e 'install.packages(
-            c("tidyverse", "lubridate", "valdr", "valdrViz", "readr"),
+            c("tidyverse", "lubridate", "valdr", "readr"),
             repos = "https://cloud.r-project.org",
             lib = Sys.getenv("R_LIBS_USER")
           )'
