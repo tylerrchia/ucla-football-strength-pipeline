@@ -200,30 +200,41 @@ forceframe_tests <- forceframe_raw$tests
 # APPENDING TO DATA FOLDER
 forcedeck_path <- "data/forcedecks.csv"
 
-if (file.exists(forcedeck_path)) {
-  forcedeck_existing <- read_csv(forcedeck_path, show_col_types = FALSE)
-  
-  forcedeck_FINAL <- bind_rows(
-    forcedeck_existing,
-    forcedeck_FINAL
-  ) %>%
-    distinct(profileId, testType, date, .keep_all = TRUE)
+if (!is.null(forcedeck_FINAL) && nrow(forcedeck_FINAL) > 0) {
+
+  if (file.exists(forcedeck_path)) {
+    forcedeck_existing <- read_csv(forcedeck_path, show_col_types = FALSE)
+
+    forcedeck_FINAL <- bind_rows(
+      forcedeck_existing,
+      forcedeck_FINAL
+    ) %>%
+      distinct(profileId, testType, date, .keep_all = TRUE)
+  }
+
+  write_csv(forcedeck_FINAL, forcedeck_path)
+
+} else {
+  message("No Forcedeck data to write.")
 }
 
-write_csv(forcedeck_FINAL, forcedeck_path)
 
 nordbord_path <- "data/nordbord.csv"
 
-if (file.exists(nordbord_path)) {
-  nordbord_existing <- read_csv(nordbord_path, show_col_types = FALSE)
-  
-  nordbord_FINAL <- bind_rows(
-    nordbord_existing,
-    nordbord_FINAL
-  ) %>%
-    distinct(profileId, testType, date, .keep_all = TRUE)
+if (!is.null(nordbord_FINAL) && nrow(nordbord_FINAL) > 0) {
+
+  if (file.exists(nordbord_path)) {
+    nordbord_existing <- read_csv(nordbord_path, show_col_types = FALSE)
+
+    nordbord_FINAL <- bind_rows(
+      nordbord_existing,
+      nordbord_FINAL
+    ) %>%
+      distinct(profileId, testType, date, .keep_all = TRUE)
+  }
+
+  write_csv(nordbord_FINAL, nordbord_path)
+
+} else {
+  message("No Nordbord data to write.")
 }
-
-write_csv(nordbord_FINAL, nordbord_path)
-
-
