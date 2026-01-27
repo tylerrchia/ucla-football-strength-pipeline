@@ -2,7 +2,7 @@ library("valdr")
 library("tidyr")
 library("lubridate")
 library("readr")
-library("dplyr)
+library("dplyr")
 
 # get_config()
 set_credentials(
