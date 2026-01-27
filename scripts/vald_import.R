@@ -1,13 +1,19 @@
+r_libs <- Sys.getenv("R_LIBS_USER")
+if (nzchar(r_libs)) {
+  .libPaths(r_libs)
+}
+
 library("valdr")
 library("tidyverse")
 library("lubridate")
+library("readr")
 
 # get_config()
 set_credentials(
   client_id     = Sys.getenv("VALD_CLIENT_ID"),
   client_secret = Sys.getenv("VALD_CLIENT_SECRET"),
   tenant_id     = Sys.getenv("VALD_TENANT_ID"),
-  region        = "use"
+  region        = Sys.getenv("VALD_REGION")
 )
 
 
