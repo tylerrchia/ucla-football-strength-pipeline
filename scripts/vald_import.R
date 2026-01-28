@@ -43,7 +43,6 @@ set_start_date(start_date)
 
 profiles_with_groups <- read_rds("data/profiles_with_groups.rds")
 # -------------------------------------------------------------------------------
-
 # pull forcedeck tests
 forcedecks <- get_forcedecks_tests_only()
 
@@ -125,7 +124,7 @@ if (is.null(forcedeck_trials) || nrow(forcedeck_trials) == 0) {
   
   # average the value and put on one row for a given profileId, testType, metric
   forcedeck_avg <- forcedeck_trials %>%
-    group_by(testType, profileId, metric) %>%
+    group_by(testId, testType, profileId, metric) %>%
     summarise(
       value = mean(value, na.rm = TRUE),
       firstName = first(firstName),
@@ -142,6 +141,7 @@ if (is.null(forcedeck_trials) || nrow(forcedeck_trials) == 0) {
     pivot_wider(
       id_cols = c(
         profileId,
+        testId,
         firstName,
         lastName,
         groupName,
@@ -151,17 +151,19 @@ if (is.null(forcedeck_trials) || nrow(forcedeck_trials) == 0) {
       ),
       names_from = metric,
       values_from = value
+    ) %>% 
+    # combine name into one column
+    mutate (
+      name = paste(firstName, lastName)
     )
 }
 
 # -------------------------------------------------------------------------------
-# pull nordbord tests
-
-# need to reset if the forcedeck doesn't have data
+# dynamic function to take only pull from 2 days prior to current date
 start_date <- format(Sys.time() - days(2), "%Y-%m-%dT00:00:00Z")
 set_start_date(start_date)
 
-
+# pull nordbord tests
 nordbord_raw <- get_nordbord_data()
 nordbord_profiles <- nordbord_raw$profiles
 nordbord_tests <- nordbord_raw$tests
@@ -193,6 +195,10 @@ if (is.null(nordbord_tests) || nrow(nordbord_tests) == 0) {
     mutate(
       asymmetry = abs(100 * (leftMaxForce - rightMaxForce) /
                         ((leftMaxForce + rightMaxForce) / 2))
+    ) %>% 
+    # combine name into one column
+    mutate (
+      name = paste(firstName, lastName)
     )
 }
 # -------------------------------------------------------------------------------
@@ -206,41 +212,28 @@ if (is.null(nordbord_tests) || nrow(nordbord_tests) == 0) {
 # APPENDING TO DATA FOLDER
 forcedeck_path <- "data/forcedecks.csv"
 
-if (!is.null(forcedeck_FINAL) && nrow(forcedeck_FINAL) > 0) {
-
-  if (file.exists(forcedeck_path)) {
-    forcedeck_existing <- read_csv(forcedeck_path, show_col_types = FALSE)
-
-    forcedeck_FINAL <- bind_rows(
-      forcedeck_existing,
-      forcedeck_FINAL
-    ) %>%
-      distinct(profileId, testType, date, .keep_all = TRUE)
-  }
-
-  write_csv(forcedeck_FINAL, forcedeck_path)
-
-} else {
-  message("No Forcedeck data to write.")
+if (file.exists(forcedeck_path)) {
+  forcedeck_existing <- read_csv(forcedeck_path, show_col_types = FALSE)
+  
+  forcedeck_FINAL <- bind_rows(
+    forcedeck_existing,
+    forcedeck_FINAL
+  ) %>%
+    distinct(profileId, testId, date, .keep_all = TRUE)
 }
 
+write_csv(forcedeck_FINAL, forcedeck_path)
 
 nordbord_path <- "data/nordbord.csv"
 
-if (!is.null(nordbord_FINAL) && nrow(nordbord_FINAL) > 0) {
-
-  if (file.exists(nordbord_path)) {
-    nordbord_existing <- read_csv(nordbord_path, show_col_types = FALSE)
-
-    nordbord_FINAL <- bind_rows(
-      nordbord_existing,
-      nordbord_FINAL
-    ) %>%
-      distinct(profileId, testType, date, .keep_all = TRUE)
-  }
-
-  write_csv(nordbord_FINAL, nordbord_path)
-
-} else {
-  message("No Nordbord data to write.")
+if (file.exists(nordbord_path)) {
+  nordbord_existing <- read_csv(nordbord_path, show_col_types = FALSE)
+  
+  nordbord_FINAL <- bind_rows(
+    nordbord_existing,
+    nordbord_FINAL
+  ) %>%
+    distinct(profileId, testId, date, .keep_all = TRUE)
 }
+
+write_csv(nordbord_FINAL, nordbord_path)
