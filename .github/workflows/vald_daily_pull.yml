@@ -39,13 +39,7 @@ jobs:
         run: Rscript scripts/vald_import.R
 
       - name: Convert CSVs to RDS
-        run: |
-          Rscript -e '
-            forcedecks <- readr::read_csv("data/forcedecks.csv", show_col_types = FALSE)
-            nordbord   <- readr::read_csv("data/nordbord.csv", show_col_types = FALSE)
-
-            saveRDS(forcedecks, "data/forcedecks.rds")
-            saveRDS(nordbord,   "data/nordbord.rds")
+        run: Rscript scripts/csv_to_rds.R
 
       - name: Commit updated CSVs
         run: |
