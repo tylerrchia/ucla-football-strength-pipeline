@@ -13,3 +13,10 @@ if (file.exists("data/nordbord.csv")) {
     "data/nordbord.rds"
   )
 }
+
+if (file.exists("data/catapult.csv")) {
+  saveRDS(
+    read_csv("data/catapult.csv", show_col_types = FALSE),
+    "data/catapult.rds"
+  )
+}
