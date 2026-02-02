@@ -2,6 +2,10 @@
 # ---------
 # In-memory build for VALD (NordBord + ForceDecks) used by Shiny via source("metrics.R")
 #
+# UPDATED FOR NEW DATA FORMAT:
+#   - forcedecks.csv (new column names)
+#   - nordbord.csv (new column names)
+#
 # Outputs created:
 #   - vald_tests_long        : canonical long table (all tests, all dates)
 #   - vald_tests_long_ui     : long table + metric_key (for player pages)
@@ -13,8 +17,6 @@
 #   - keep_roster_metrics   : metric keys kept in roster_view
 #   - roster_percentiles_wide : roster_view + per-metric percentiles as extra columns (__pctl)
 #   - roster_percentiles_long : long percentile table (best for joins / UI)
-#
-# No scoring/composites.
 
 suppressPackageStartupMessages({
   library(readr)
@@ -27,9 +29,9 @@ suppressPackageStartupMessages({
 # ---------------------------
 # Config
 # ---------------------------
-NORD_PATH  <- "nordbord_data.csv"
-FORCE_PATH <- "forcedecks_data.csv"
-POS_PATH <- "positions.csv"
+NORD_PATH  <- "data/nordbord.rds"
+FORCE_PATH <- "data/forcedecks.rds"
+POS_PATH <- "data/profiles_with_groups.rds"
 
 as_of_date <- as.Date("2026-01-23")
 
@@ -43,7 +45,7 @@ standardize_name <- function(x) {
   x %>%
     str_squish() %>%
     str_to_upper() %>%
-    str_replace_all("[\\.,'’]", "") %>%
+    str_replace_all("[\\.,'']", "") %>%
     str_squish()
 }
 
@@ -82,16 +84,35 @@ pct_rank_100 <- function(x) {
 }
 
 ingest_positions <- function(path) {
-  pos_raw <- read_csv(path, show_col_types = FALSE) %>%
+  # Check file extension
+  if (grepl("\\.rds$", path, ignore.case = TRUE)) {
+    pos_raw <- readRDS(path)
+  } else {
+    pos_raw <- read_csv(path, show_col_types = FALSE)
+  }
+  
+  # Standardize column names - handle both old and new formats
+  pos_raw <- pos_raw %>%
+    rename_with(~ case_when(
+      . == "groupName" ~ "Group",
+      . == "positionName" ~ "Position",
+      tolower(.) == "group" ~ "Group",
+      tolower(.) == "position" ~ "Position",
+      tolower(.) == "firstname" ~ "firstName",
+      tolower(.) == "lastname" ~ "lastName",
+      TRUE ~ .
+    ))
+  
+  pos_raw <- pos_raw %>%
     mutate(
-      player_name = str_squish(paste(firstName, lastName)),
+      player_name = str_squish(coalesce(name, paste(firstName, lastName))),
       player_id   = standardize_name(player_name),
       Group       = na_if(str_squish(as.character(Group)), ""),
       Position    = na_if(str_squish(as.character(Position)), ""),
       year        = suppressWarnings(as.integer(year))
     )
   
-  # If duplicates exist for the same player_id, keep the “best” row
+  # If duplicates exist for the same player_id, keep the "best" row
   # (prefer non-NA Position/Group/year)
   pos_clean <- pos_raw %>%
     group_by(player_id) %>%
@@ -107,31 +128,58 @@ ingest_positions <- function(path) {
 }
 
 # ---------------------------
-# Ingestors
+# Ingestors for NEW DATA FORMAT
 # ---------------------------
 
 ingest_nordboard <- function(path) {
-  raw <- read_csv(path, show_col_types = FALSE)
+  # Check file extension and read accordingly
+  if (grepl("\\.rds$", path, ignore.case = TRUE)) {
+    raw <- readRDS(path)
+  } else {
+    raw <- read_csv(path, show_col_types = FALSE)
+  }
+  
+  # New column names: profileId, testId, testType, firstName, lastName, 
+  # groupName, positionName, year, date, leftAvgForce, leftImpulse, leftMaxForce, 
+  # rightAvgForce, rightImpulse, rightMaxForce, asymmetry, name
   
   raw <- raw %>%
-    rename(date_chr = `Date UTC`, time_chr = `Time UTC`, test_type = Test) %>%
     mutate(
-      date     = mdy(date_chr),
-      datetime = suppressWarnings(mdy_hms(paste(date_chr, time_chr))),
-      datetime = if_else(is.na(datetime), as.POSIXct(date), datetime),
-      player_name = str_squish(Name),
-      player_id   = standardize_name(player_name),
-      source      = "NordBord"
+      # Parse date - try multiple formats
+      date = if(inherits(date, "Date")) {
+        date
+      } else {
+        # Try different date parsing functions
+        parsed <- suppressWarnings(ymd(date))
+        if(all(is.na(parsed))) parsed <- suppressWarnings(mdy(date))
+        if(all(is.na(parsed))) parsed <- suppressWarnings(dmy(date))
+        parsed
+      },
+      datetime = as.POSIXct(date),
+      player_name = str_squish(coalesce(name, paste(firstName, lastName))),
+      player_id = standardize_name(player_name),
+      source = "NordBord",
+      test_type = coalesce(testType, "Nordic Hamstring")
     )
   
   id_cols <- c("player_id", "player_name", "date", "datetime", "source", "test_type")
   
-  non_metric <- c("Name", "ExternalId", "Device", "date_chr", "time_chr",
-                  "date", "datetime", "source", "test_type")
-  metric_cols <- setdiff(names(raw), c(non_metric, id_cols))
+  # Metrics to extract: all numeric columns that are actual metrics
+  metric_cols <- c(
+    "leftAvgForce", "leftImpulse", "leftMaxForce",
+    "rightAvgForce", "rightImpulse", "rightMaxForce",
+    "asymmetry"
+  )
+  
+  # Filter to only columns that exist
+  metric_cols <- intersect(metric_cols, names(raw))
+  
+  if (length(metric_cols) == 0) {
+    stop("No metric columns found in NordBord data. Check column names.")
+  }
   
   raw %>%
-    select(any_of(id_cols), any_of(metric_cols)) %>%
+    select(any_of(c(id_cols, metric_cols))) %>%
     pivot_longer(
       cols = all_of(metric_cols),
       names_to = "metric_raw",
@@ -139,8 +187,23 @@ ingest_nordboard <- function(path) {
       values_transform = list(metric_value_raw = as.character)
     ) %>%
     mutate(
-      units        = parse_units(metric_raw),
-      metric_name  = clean_metric_name(metric_raw),
+      # Convert camelCase to readable format with units
+      metric_name = case_when(
+        metric_raw == "leftAvgForce" ~ "L Avg Force",
+        metric_raw == "leftImpulse" ~ "L Max Impulse",
+        metric_raw == "leftMaxForce" ~ "L Max Force",
+        metric_raw == "rightAvgForce" ~ "R Avg Force",
+        metric_raw == "rightImpulse" ~ "R Max Impulse",
+        metric_raw == "rightMaxForce" ~ "R Max Force",
+        metric_raw == "asymmetry" ~ "Max Imbalance",
+        TRUE ~ metric_raw
+      ),
+      units = case_when(
+        str_detect(metric_raw, "Force") ~ "N",
+        str_detect(metric_raw, "Impulse") ~ "Ns",
+        metric_raw == "asymmetry" ~ "%",
+        TRUE ~ NA_character_
+      ),
       metric_value = parse_metric_numeric(metric_value_raw)
     ) %>%
     filter(!is.na(metric_value)) %>%
@@ -148,38 +211,61 @@ ingest_nordboard <- function(path) {
 }
 
 ingest_forcedecks <- function(path) {
-  raw <- read_csv(path, show_col_types = FALSE)
-  names(raw) <- str_squish(names(raw))
-  
-  # Column name after str_squish()
-  
-  jh_col <- "Jump Height (Imp-Mom) in Inches [in]"
-  
-  if (jh_col %in% names(raw)) {
-    raw <- raw %>%
-      mutate(jh_in = parse_metric_numeric(.data[[jh_col]])) %>%
-      filter(jh_in <= 5 | jh_in >= 30) %>%
-      select(-jh_in)
+  # Check file extension and read accordingly
+  if (grepl("\\.rds$", path, ignore.case = TRUE)) {
+    raw <- readRDS(path)
+  } else {
+    raw <- read_csv(path, show_col_types = FALSE)
   }
   
+  # New column names: profileId, testId, firstName, lastName, groupName, positionName,
+  # testType, date, Athlete.Standing.Weight, Concentric.Impulse, etc.
+  
   raw <- raw %>%
-    rename(test_type = `Test Type`) %>%
     mutate(
-      date     = mdy(as.character(Date)),
-      datetime = as.POSIXct(date),   # ← SAFE fallback
-      player_name = str_squish(Name),
-      player_id   = standardize_name(player_name),
-      source      = "ForceDecks"
+      # Parse date - try multiple formats
+      date = if(inherits(date, "Date")) {
+        date
+      } else {
+        # Try different date parsing functions
+        parsed <- suppressWarnings(ymd(date))
+        if(all(is.na(parsed))) parsed <- suppressWarnings(mdy(date))
+        if(all(is.na(parsed))) parsed <- suppressWarnings(dmy(date))
+        parsed
+      },
+      datetime = as.POSIXct(date),
+      player_name = str_squish(coalesce(name, paste(firstName, lastName))),
+      player_id = standardize_name(player_name),
+      source = "ForceDecks",
+      test_type = coalesce(testType, "Unknown")
     )
   
   id_cols <- c("player_id", "player_name", "date", "datetime", "source", "test_type")
   
-  non_metric <- c("Name", "ExternalId", "Date", "Time", "Tags",
-                  "date", "datetime", "source", "test_type")
-  metric_cols <- setdiff(names(raw), c(non_metric, id_cols))
+  # Identify non-metric columns
+  non_metric <- c(
+    "profileId", "testId", "firstName", "lastName", "groupName", 
+    "positionName", "testType", "date", "name",
+    "player_id", "player_name", "datetime", "source", "test_type"
+  )
+  
+  metric_cols <- setdiff(names(raw), non_metric)
+  
+  if (length(metric_cols) == 0) {
+    stop("No metric columns found in ForceDecks data. Check column names.")
+  }
+  
+  # Apply Jump Height filter (if column exists)
+  jh_col <- "Jump Height (Imp-Mom)"
+  if (jh_col %in% names(raw)) {
+    raw <- raw %>%
+      mutate(jh_temp = parse_metric_numeric(.data[[jh_col]])) %>%
+      filter(is.na(jh_temp) | (jh_temp > 5 & jh_temp < 30)) %>%
+      select(-jh_temp)
+  }
   
   raw %>%
-    select(any_of(id_cols), any_of(metric_cols)) %>%
+    select(any_of(c(id_cols, metric_cols))) %>%
     pivot_longer(
       cols = all_of(metric_cols),
       names_to = "metric_raw",
@@ -187,14 +273,29 @@ ingest_forcedecks <- function(path) {
       values_transform = list(metric_value_raw = as.character)
     ) %>%
     mutate(
-      units        = parse_units(metric_raw),
-      metric_name  = clean_metric_name(metric_raw),
+      # Clean up metric names: replace dots with spaces, remove multiple dots
+      metric_name = metric_raw %>%
+        str_replace_all("\\.{2,}", " ") %>%
+        str_replace_all("\\.", " ") %>%
+        str_squish(),
+      # Infer units from metric names
+      units = case_when(
+        str_detect(metric_name, "BM") ~ "W/kg or N/kg",
+        str_detect(metric_name, "Weight|Force") ~ "N or kg",
+        str_detect(metric_name, "Impulse") ~ "Ns",
+        str_detect(metric_name, "Velocity") ~ "m/s",
+        str_detect(metric_name, "Power") ~ "W/kg",
+        str_detect(metric_name, "Time") ~ "ms",
+        str_detect(metric_name, "Depth|Height") ~ "cm or in",
+        str_detect(metric_name, "RFD") ~ "N/s/kg",
+        str_detect(metric_name, "RSI") ~ "m/s",
+        TRUE ~ NA_character_
+      ),
       metric_value = parse_metric_numeric(metric_value_raw)
     ) %>%
     filter(!is.na(metric_value)) %>%
     select(-metric_value_raw)
 }
-
 
 ingest_vald_bundle <- function(nord_path, force_path) {
   bind_rows(
@@ -224,21 +325,8 @@ players <- players %>%
 vald_tests_long <- vald_tests_long %>%
   left_join(positions, by = "player_id")
 
-# Join to wide snapshots
-vald_latest_wide <- vald_latest_wide %>%
-  left_join(positions, by = "player_id")
-
-roster_percentiles_wide <- roster_percentiles_wide %>%
-  left_join(positions, by = "player_id")
-
-roster_percentiles_long <- roster_percentiles_long %>%
-  left_join(positions, by = "player_id")
-
 vald_tests_long_ui <- vald_tests_long %>%
   mutate(metric_key = paste(source, test_type, metric_name, sep="|"))
-
-# vald_tests_long_ui <- vald_tests_long_ui %>%
-#   filter(metric_key %in% keep_roster_metrics)
 
 # ---------------------------
 # Build wide "as-of" snapshot (ALL metrics)
@@ -253,13 +341,12 @@ vald_latest_wide <- vald_tests_long_ui %>%
   pivot_wider(names_from = metric_key, values_from = metric_value) %>%
   mutate(as_of_date = as_of_date)
 
-pos_cols <- c("pos_group", "pos_position")  # add pos_player_name too if you want
+pos_cols <- c("pos_group", "pos_position")
 id_cols <- c("player_id", "player_name", pos_cols, "as_of_date")
 metric_cols <- setdiff(names(vald_latest_wide), id_cols)
 
-
 # ---------------------------
-# Keep roster metrics (>=80% filled) — computed WITHIN SOURCE
+# Keep roster metrics (>=threshold filled) — computed WITHIN SOURCE
 # ---------------------------
 
 # helper to extract source from metric_key
@@ -290,7 +377,7 @@ fill_summary <- lapply(sources, function(s) {
             x <- .[!is.na(.)]
             if (length(x) == 0) NA_real_ else mean(x == 0)
           },
-          n_unique = ~ {                  # ✅ NEW
+          n_unique = ~ {
             x <- .[!is.na(.)]
             length(unique(x))
           }
@@ -312,19 +399,16 @@ fill_summary <- lapply(sources, function(s) {
 }) %>%
   bind_rows()
 
-
 keep_roster_metrics <- fill_summary %>%
   filter(
     fill_frac >= filled_threshold,
-    n_unique > 1,                    # ✅ drops constant metrics within-source
+    n_unique > 1,
     is.na(zero_frac) | zero_frac <= 0.90
   ) %>%
   pull(metric_key)
 
-
 roster_view <- vald_latest_wide %>%
   select(all_of(c(id_cols, keep_roster_metrics)))
-
 
 # ---------------------------
 # Roster-wide percentiles per metric (stored two ways)
@@ -333,6 +417,10 @@ roster_view <- vald_latest_wide %>%
 # (A) Wide: add __pctl columns next to metrics
 roster_percentiles_wide <- roster_view %>%
   mutate(across(all_of(keep_roster_metrics), pct_rank_100, .names = "{.col}__pctl"))
+
+# Join positions to wide percentiles
+roster_percentiles_wide <- roster_percentiles_wide %>%
+  left_join(positions, by = "player_id")
 
 # (B) Long: one row per player per metric (best for joins/plots)
 roster_percentiles_long <- roster_view %>%
@@ -344,6 +432,10 @@ roster_percentiles_long <- roster_view %>%
   group_by(metric_key) %>%
   mutate(percentile = pct_rank_100(metric_value)) %>%
   ungroup()
+
+# Join positions to long percentiles
+roster_percentiles_long <- roster_percentiles_long %>%
+  left_join(positions, by = "player_id")
 
 message("Built objects:")
 message("  vald_tests_long:         ", nrow(vald_tests_long), " rows")
