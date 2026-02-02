@@ -38,6 +38,11 @@ jobs:
           VALD_REGION: ${{ secrets.VALD_REGION }}
         run: Rscript scripts/vald_import.R
 
+      - name: Run Catapult data pull
+        env:
+          CATAPULT_API_TOKEN: ${{ secrets.CATAPULT_API_TOKEN }}
+        run: Rscript scripts/catapult_import.R
+
       - name: Convert CSVs to RDS
         run: Rscript scripts/csv_to_rds.R
 
