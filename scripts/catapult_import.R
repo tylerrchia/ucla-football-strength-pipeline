@@ -32,17 +32,21 @@ activities <- activities %>%
   mutate(modified_at = ymd_hms(modified_at, tz = "UTC")) %>% 
   select(id, name, modified_at) %>% 
   filter(modified_at > ymd_hms("2026-01-26 21:04:29", tz = "UTC"))
+
 # -------------------------------------------------------------------------------
 # initial pull of all stats from 1/26/2026
-# catapult_initial <- map_dfr(activities$id[1:5], function(act_id) {
+# catapult_initial <- map_dfr(activities$id[1:6], function(act_id) {
 #   ofCloudGetStatistics(
-#     token, 
+#     token,
 #     params = c(
 #       "athlete_name", "date", 
-#       "total_distance", "total_duration", "total_player_load", "max_vel", 
+#       "total_distance", "total_duration", "total_player_load", "player_load_per_minute"," average_player_load_session",
+#       "explosive_efforts", "total_distance", "max_vel", "high_speed_distance_set_2_12mph",
+#       "sprint_distance_set_2_16mph", "total_lineman_contact_count", "average_lineman_contact_load",
+#       "average_football_impact_load_session", "average_football_impact_count_session","max_effort_acceleration", "max_effort_deceleration", 
 #       "hsr_efforts", "period_id", "period_name", "activity_name"
 #     ), 
-#     groupby = c("athlete", "period", "activity"), 
+#     groupby = c("athlete", "period", "activity"),
 #     filters = list(
 #       name = "activity_id",
 #       comparison = "=",
@@ -62,7 +66,10 @@ catapult_append <- map_dfr(activities_recent$id, function(act_id) {
     token, 
     params = c(
       "athlete_name", "date", 
-      "total_distance", "total_duration", "total_player_load", "max_vel", 
+      "total_distance", "total_duration", "total_player_load", "player_load_per_minute"," average_player_load_session",
+      "explosive_efforts", "total_distance", "max_vel", "high_speed_distance_set_2_12mph",
+      "sprint_distance_set_2_16mph", "total_lineman_contact_count", "average_lineman_contact_load",
+      "average_football_impact_load_session", "average_football_impact_count_session","max_effort_acceleration", "max_effort_deceleration", 
       "hsr_efforts", "period_id", "period_name", "activity_name"
     ), 
     groupby = c("athlete", "period", "activity"), 
@@ -73,7 +80,6 @@ catapult_append <- map_dfr(activities_recent$id, function(act_id) {
     )
   )
 })
-
 
 # -------------------------------------------------------------------------------
 # APPENDING TO DATA FOLDER
@@ -98,3 +104,6 @@ if (file.exists(catapult_path)) {
 
 write_csv(catapult_final, catapult_path)
 
+slug_df <- tibble(
+  slug = unique(parameters$slug)
+)
