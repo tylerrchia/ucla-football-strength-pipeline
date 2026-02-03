@@ -5,6 +5,7 @@ library(lubridate)
 library(dplyr)
 library(tidyr)
 library(readr)
+library(purrr)
 
 # package?catapultR
 # help(package="catapultR")
