@@ -28,7 +28,8 @@ jobs:
             valdr
             dplyr
             tidyr
-      
+            purrr
+            SBGSports/catapultr
 
       - name: Run VALD data pull
         env:
