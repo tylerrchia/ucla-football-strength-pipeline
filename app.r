@@ -310,6 +310,8 @@ nord_metric_names <- c(
   "Impulse Imbalance"
 )
 
+
+
 # Resolve to actual metric_keys in your data (best match by fill_frac)
 force_metric_keys_map <- pick_best_keys_for_metric_names("ForceDecks", force_metric_names, fill_summary)
 nord_metric_keys_map  <- pick_best_keys_for_metric_names("NordBord",   nord_metric_names,  fill_summary)
@@ -325,6 +327,25 @@ radar_force_labels <- tibble::tibble(
 radar_nord_labels <- tibble::tibble(
   metric_key = unname(nord_metric_keys_map),
   radar_label = names(nord_metric_keys_map)
+) %>% filter(!is.na(metric_key))
+
+
+
+catapult_metric_names <- c(
+  "Total Distance",
+  "Max Vel",
+  "Max Effort Acceleration",
+  "Max Effort Deceleration",
+  "Total Player Load"
+)
+
+catapult_metric_keys_map <- pick_best_keys_for_metric_names("Catapult", catapult_metric_names, fill_summary)
+
+radar_catapult_metrics <- unname(catapult_metric_keys_map[!is.na(catapult_metric_keys_map)])
+
+radar_catapult_labels <- tibble::tibble(
+  metric_key = unname(catapult_metric_keys_map),
+  radar_label = names(catapult_metric_keys_map)
 ) %>% filter(!is.na(metric_key))
 
 
@@ -418,8 +439,17 @@ default_metric_for_slider <- {
 # Detect optional roster metadata columns
 group_col <- if ("pos_group" %in% names(roster_view)) "pos_group" else if ("Group" %in% names(roster_view)) "Group" else NULL
 pos_col   <- if ("pos_position" %in% names(roster_view)) "pos_position" else if ("Position" %in% names(roster_view)) "Position" else NULL
-class_col <- if ("Class" %in% names(roster_view)) "Class" else NULL
+
+class_col <- if ("class_year_base" %in% names(roster_view)) {
+  "class_year_base"     # best for slicer: FR/SO/JR/SR
+} else if ("class_year" %in% names(roster_view)) {
+  "class_year"          # fallback if you kept RS-SR style labels
+} else {
+  NULL
+}
+
 headshot_col <- if ("headshot" %in% names(roster_view)) "headshot" else NULL
+
 
 # For radar (until you build speed/power/strength/conditioning),
 # we use "NordBord average percentile" vs "ForceDecks average percentile"
@@ -447,9 +477,9 @@ ui <- navbarPage(
     "Roster Explorer",
     sidebarLayout(
       sidebarPanel(
-        if (!is.null(group_col)) {
-          selectInput("group_filter", "Group",
-                      choices = c("All", sort(unique(na.omit(roster_view[[group_col]])))),
+        if (!is.null(class_col)) {
+          selectInput("class_filter", "Class Year",
+                      choices = c("All", sort(unique(na.omit(roster_view[[class_col]])))),
                       selected = "All", multiple = TRUE)
         },
         if (!is.null(pos_col)) {
@@ -457,9 +487,9 @@ ui <- navbarPage(
                       choices = c("All", sort(unique(na.omit(roster_view[[pos_col]])))),
                       selected = "All", multiple = TRUE)
         },
-        if (!is.null(class_col)) {
-          selectInput("class_filter", "Class Year",
-                      choices = c("All", sort(unique(na.omit(roster_view[[class_col]])))),
+        if (!is.null(group_col)) {
+          selectInput("group_filter", "Group",
+                      choices = c("All", sort(unique(na.omit(roster_view[[group_col]])))),
                       selected = "All", multiple = TRUE)
         },
         
@@ -508,12 +538,29 @@ ui <- navbarPage(
       
       fluidRow(
         column(
+          4,
+          selectInput(
+            "player_pick",
+            "Select player",
+            choices = sort(unique(roster_view$player_name)),
+            selected = sort(unique(roster_view$player_name))[1]
+          )
+        )
+      ),
+      tags$hr(),
+      
+      fluidRow(
+        column(
           width = 4,
           h4("ForceDecks Radar"),
           plotlyOutput("radar_force_plot", height = 280),
           
           h4("NordBord Radar"),
           plotlyOutput("radar_nord_plot", height = 280),
+          
+          h4("Catapult Radar"),
+          plotlyOutput("radar_catapult_plot", height = 280),
+          
           
           h4("Quick tags"),
           uiOutput("player_tags")
@@ -601,7 +648,10 @@ ui <- navbarPage(
                   plotlyOutput("compare_force_radar_plot", height = 280),
                   tags$hr(),
                   h4("NordBord Radar"),
-                  plotlyOutput("compare_nord_radar_plot", height = 280)
+                  plotlyOutput("compare_nord_radar_plot", height = 280),
+                  tags$hr(),
+                  h4("Catapult Radar"),
+                  plotlyOutput("compare_catapult_radar_plot", height = 280)
                 )              )
             )
           )
@@ -666,6 +716,18 @@ ui <- navbarPage(
 # ---------------------------
 
 server <- function(input, output, session) {
+  
+  fmt_measure <- function(x) {
+    if (is.null(x) || length(x) == 0) return("—")
+    s <- as.character(x[1])
+    s <- stringr::str_squish(s)
+    if (is.na(s) || !nzchar(s)) return("—")
+    
+    # If it looks like "78.0" or "10.0", strip the trailing .0
+    s <- stringr::str_replace(s, "\\.0$", "")
+    s
+  }
+  
   
   roster_allowed_metric_keys <- reactive({
     mk_sys  <- input$pctl_system
@@ -774,16 +836,252 @@ server <- function(input, output, session) {
   
   
   
-  # selected player state (set by roster click)
-  selected_player <- reactiveVal(roster_view$player_name[1] %||% "")
+  # ---------- Roster filtered ----------
+  roster_filtered <- reactive({
+    df <- roster_view
+    
+    if (!is.null(group_col) && !is.null(input$group_filter) && length(input$group_filter) > 0 && !("All" %in% input$group_filter)) {
+      df <- df[df[[group_col]] %in% input$group_filter, , drop = FALSE]
+    }
+    # optional metadata filters
+    if (!is.null(pos_col) && !is.null(input$pos_filter) && length(input$pos_filter) > 0 && !("All" %in% input$pos_filter)) {
+      df <- df[df[[pos_col]] %in% input$pos_filter, , drop = FALSE]
+    }
+    if (!is.null(class_col) && !is.null(input$class_filter) && length(input$class_filter) > 0 && !("All" %in% input$class_filter)) {
+      df <- df[df[[class_col]] %in% input$class_filter, , drop = FALSE]
+    }
+    
+    
+    df
+  })
   
+  default_roster_metrics <- c(
+    "Athleticism Score",
+    
+    # ForceDecks...
+    "Athlete Standing Weight",
+    "Jump Height (Imp-Mom) in Inches",
+    "RSI-modified",
+    "Force at Peak Power",
+    "Force at Zero Velocity",
+    "Eccentric Braking Impulse",
+    "Concentric Impulse",
+    
+    # NordBord...
+    "L Max Force",
+    "R Max Force",
+    "L Max Impulse",
+    "R Max Impulse",
+    "Max Imbalance",
+    "Impulse Imbalance",
+    
+    # Catapult
+    "Total Distance",
+    "Max Vel",
+    "Max Effort Acceleration",
+    "Max Effort Deceleration",
+    "Total Player Load"
+  )
+  
+  
+  
+  output$roster_table <- renderDT({
+    df <- roster_filtered()
+    
+    mk_sys  <- input$pctl_system
+    mk_test <- input$pctl_test
+    mk_met  <- input$pctl_metric
+    
+    # start with all metrics
+    metric_show <- keep_roster_metrics[
+      sapply(keep_roster_metrics, function(x) {
+        any(default_roster_metrics %in% sub("^.*\\|", "", x))
+      })
+    ]
+    
+    # filter by System
+    if (!is.null(mk_sys) && mk_sys != "All") {
+      metric_show <- metric_show[startsWith(metric_show, paste0(mk_sys, "|"))]
+    }
+    
+    # filter by Test Type
+    if (!is.null(mk_test) && mk_test != "All") {
+      metric_show <- metric_show[str_detect(metric_show, paste0("\\|", mk_test, "\\|"))]
+    }
+    
+    # if specific Metrics are chosen (multi), override and show ONLY those
+    if (!is.null(mk_met) && length(mk_met) > 0 && !("All" %in% mk_met)) {
+      metric_show <- intersect(keep_roster_metrics, mk_met)
+    }
+    
+    # Always include Athleticism Score as a leading metric (if present)
+    if (HAS_ATH) {
+      metric_show <- unique(c(ATH_KEY, metric_show))
+    }
+    
+    # ---- FRONT COLUMNS: force Name, then Position, then Group/Class ----
+    front <- c("player_name")
+    
+    # ✅ class year immediately after player name
+    if (!is.null(class_col)) front <- c(front, class_col)
+    
+    # then position
+    if (!is.null(pos_col)) {
+      front <- c(front, pos_col)
+    } else if ("pos_position" %in% names(df)) {
+      front <- c(front, "pos_position")
+    }
+    
+    # then group
+    if (!is.null(group_col)) {
+      front <- c(front, group_col)
+    } else if ("pos_group" %in% names(df)) {
+      front <- c(front, "pos_group")
+    }
+    
+    # Put Athleticism immediately after identity columns (if available)
+    if (HAS_ATH) {
+      metric_show <- unique(c(ATH_KEY, setdiff(metric_show, ATH_KEY)))
+    }
+    
+    cols <- unique(c(front, metric_show))
+    df_disp <- df %>% dplyr::select(dplyr::any_of(cols))
+    
+    
+    # ---- CLEAN COLUMN NAMES FOR DISPLAY ----
+    # 1) clean metric names: keep text after final |
+    disp_names <- vapply(
+      colnames(df_disp),
+      function(x) {
+        if (grepl("\\|", x)) sub("^.*\\|", "", x) else x
+      },
+      character(1)
+    )
+    
+    # 2) friendly labels for the roster identity columns
+    disp_names <- dplyr::recode(
+      disp_names,
+      player_name      = "Player Name",
+      pos_position     = "Position",
+      pos_group        = "Position Group",
+      class_year_base  = "Class Year",
+      class_year       = "Class Year"
+    )
+    
+    # ---- Clean up VALD metric column names ----
+    disp_names <- gsub("Jump Height \\(Imp-Mom\\) in Inches", "Jump Height", disp_names)
+    disp_names <- gsub("Jump Height \\(Imp-Mom\\)", "Jump Height", disp_names)
+    disp_names <- gsub(" in Inches", "", disp_names)
+    
+    colnames(df_disp) <- disp_names
+    
+    
+    container <- make_dt_container_with_ath_tooltip(names(df_disp))
+    
+    dt <- DT::datatable(
+      df_disp,
+      container = container,   # ✅ add this
+      escape = FALSE,          # ✅ important so ⓘ renders
+      rownames = FALSE,
+      selection = "single",
+      options = list(
+        pageLength = 50,
+        scrollX = TRUE,
+        searchHighlight = TRUE,
+        columnDefs = list(
+          list(
+            targets = 0,
+            className = "dt-nowrap"
+          )
+        ),
+        order = if ("Athleticism Score" %in% names(df_disp)) {
+          list(list(which(names(df_disp) == "Athleticism Score") - 1, "desc"))
+        } else {
+          list()
+        }
+      )
+    )
+    
+    
+    # Color-code Athleticism Score if present
+    if ("Athleticism Score" %in% names(df_disp)) {
+      dt <- dt %>%
+        DT::formatRound("Athleticism Score", 1) %>%
+        DT::formatStyle(
+          "Athleticism Score",
+          backgroundColor = DT::styleInterval(
+            c(20, 40, 60, 80),
+            c("#ffe5e5", "#ffd6a5", "#fff3b0", "#d9f7be", "#b7eb8f")
+          ),
+          fontWeight = "bold"
+        )
+    }
+    
+    dt
+    
+  })
+  
+  # selected player state (set by roster click / picker)
+  selected_player <- reactiveVal(NULL)
+  
+  # ---- init/reset selected player (top of current filtered table) ----
+  observeEvent(roster_filtered(), {
+    df <- roster_filtered()
+    if (nrow(df) == 0) return()
+    
+    # match DT ordering: Athleticism desc if present
+    if (HAS_ATH && ATH_KEY %in% names(df)) {
+      df <- df %>% arrange(desc(.data[[ATH_KEY]]), player_name)
+    } else {
+      df <- df %>% arrange(player_name)
+    }
+    
+    top_nm <- df$player_name[1] %||% ""
+    cur_nm <- selected_player()
+    
+    # if nothing selected OR selected no longer in filtered df -> reset
+    if (is.null(cur_nm) || !nzchar(cur_nm) || !(cur_nm %in% df$player_name)) {
+      selected_player(top_nm)
+    }
+  }, ignoreInit = FALSE)
+  
+  # ---- keep player picker choices synced to current roster filters ----
+  observe({
+    df <- roster_filtered()
+    req(nrow(df) > 0)
+    
+    choices <- df %>% pull(player_name) %>% unique() %>% sort()
+    current <- selected_player()
+    
+    # keep current if valid; otherwise use first (which will be top_nm via observer above)
+    selected <- if (!is.null(current) && nzchar(current) && current %in% choices) current else (choices[1] %||% "")
+    
+    updateSelectInput(session, "player_pick", choices = choices, selected = selected)
+  })
+  
+  # Picker -> selected player
+  observeEvent(input$player_pick, {
+    nm <- input$player_pick
+    if (!is.null(nm) && nzchar(nm)) selected_player(nm)
+  }, ignoreInit = TRUE)
+  
+  # Update compare_player when selected changes
   observeEvent(selected_player(), {
     nm <- selected_player()
     players <- sort(unique(roster_view$player_name))
     pick <- players[players != nm][1] %||% nm
     updateSelectInput(session, "compare_player", choices = players, selected = pick)
   }, ignoreInit = TRUE)
-
+  
+  # Table click -> selected player
+  observeEvent(input$roster_table_rows_selected, {
+    idx <- input$roster_table_rows_selected
+    df <- roster_filtered()
+    if (length(idx) == 1 && nrow(df) >= idx) {
+      selected_player(df$player_name[idx])
+    }
+  }, ignoreInit = TRUE)
+  
   
   
   # ---------- Populate Performance/Trend filter dropdowns ----------
@@ -979,210 +1277,7 @@ server <- function(input, output, session) {
                       choices = c("None", players),
                       selected = "None")
   })
-  
-  
-  # ---------- Roster filtered ----------
-  roster_filtered <- reactive({
-    df <- roster_view
-    
-    if (!is.null(group_col) && !is.null(input$group_filter) && length(input$group_filter) > 0 && !("All" %in% input$group_filter)) {
-      df <- df[df[[group_col]] %in% input$group_filter, , drop = FALSE]
-    }
-    # optional metadata filters
-    if (!is.null(pos_col) && !is.null(input$pos_filter) && length(input$pos_filter) > 0 && !("All" %in% input$pos_filter)) {
-      df <- df[df[[pos_col]] %in% input$pos_filter, , drop = FALSE]
-    }
-    if (!is.null(class_col) && !is.null(input$class_filter) && length(input$class_filter) > 0 && !("All" %in% input$class_filter)) {
-      df <- df[df[[class_col]] %in% input$class_filter, , drop = FALSE]
-    }
-    
-    # percentile slider filter (supports multi-selected metrics)
-    # mk <- input$pctl_metric
-    # 
-    # if (!is.null(mk) && length(mk) > 0 && !("All" %in% mk)) {
-    #   mk <- intersect(mk, keep_roster_metrics)
-    #   
-    #   if (length(mk) > 0) {
-    #     
-    #     ok_players <- roster_percentiles_long %>%
-    #       filter(metric_key %in% mk) %>%
-    #       select(player_id, metric_key, percentile) %>%
-    #       tidyr::complete(player_id = unique(df$player_id), metric_key = mk,
-    #                       fill = list(percentile = NA_real_)) %>%
-    #       group_by(player_id) %>%
-    #       summarise(
-    #         ok = all(is.na(percentile) | percentile >= input$min_pctl),
-    #         .groups = "drop"
-    #       ) %>%
-    #       filter(ok) %>%
-    #       pull(player_id)
-    #     
-    #     df <- df %>% filter(player_id %in% ok_players)
-    #   }
-    # }
-    # 
-    
-    df
-  })
-  
-  
-  default_roster_metrics <- c(
-    "Athleticism Score",
-    
-    "Athlete Standing Weight",
-    "Jump Height (Imp-Mom) in Inches",
-    "RSI-modified",
-    "Force at Peak Power",
-    "Force at Zero Velocity",
-    "Eccentric Braking Impulse",
-    "Concentric Impulse",
-    
-    "L Max Force",
-    "R Max Force",
-    "L Max Impulse",
-    "R Max Impulse",
-    "Max Imbalance",
-    "Impulse Imbalance"
-  )
-  
-  
-  output$roster_table <- renderDT({
-    df <- roster_filtered()
-    
-    mk_sys  <- input$pctl_system
-    mk_test <- input$pctl_test
-    mk_met  <- input$pctl_metric
-    
-    # start with all metrics
-    metric_show <- keep_roster_metrics[
-      sapply(keep_roster_metrics, function(x) {
-        any(default_roster_metrics %in% sub("^.*\\|", "", x))
-      })
-    ]
-    
-    # filter by System
-    if (!is.null(mk_sys) && mk_sys != "All") {
-      metric_show <- metric_show[startsWith(metric_show, paste0(mk_sys, "|"))]
-    }
-    
-    # filter by Test Type
-    if (!is.null(mk_test) && mk_test != "All") {
-      metric_show <- metric_show[str_detect(metric_show, paste0("\\|", mk_test, "\\|"))]
-    }
-    
-    # if specific Metrics are chosen (multi), override and show ONLY those
-    if (!is.null(mk_met) && length(mk_met) > 0 && !("All" %in% mk_met)) {
-      metric_show <- intersect(keep_roster_metrics, mk_met)
-    }
-    
-    # Always include Athleticism Score as a leading metric (if present)
-    if (HAS_ATH) {
-      metric_show <- unique(c(ATH_KEY, metric_show))
-    }
-    
-    # ---- FRONT COLUMNS: force Name, then Position, then Group/Class ----
-    front <- c("player_name")
-    
-    # put position second (if it exists)
-    if (!is.null(pos_col)) {
-      front <- c(front, pos_col)
-    } else if ("pos_position" %in% names(df)) {
-      front <- c(front, "pos_position")
-    }
-    
-    # then group (if it exists)
-    if (!is.null(group_col)) {
-      front <- c(front, group_col)
-    } else if ("pos_group" %in% names(df)) {
-      front <- c(front, "pos_group")
-    }
-    
-    # then class (if it exists)
-    if (!is.null(class_col)) front <- c(front, class_col)
-    
-    # Put Athleticism immediately after identity columns (if available)
-    if (HAS_ATH) {
-      metric_show <- unique(c(ATH_KEY, setdiff(metric_show, ATH_KEY)))
-    }
-    
-    cols <- unique(c(front, metric_show))
-    df_disp <- df %>% dplyr::select(dplyr::any_of(cols))
-    
-    
-    # ---- CLEAN COLUMN NAMES FOR DISPLAY ----
-    # 1) clean metric names: keep text after final |
-    disp_names <- vapply(
-      colnames(df_disp),
-      function(x) {
-        if (grepl("\\|", x)) sub("^.*\\|", "", x) else x
-      },
-      character(1)
-    )
-    
-    # 2) friendly labels for the roster identity columns
-    disp_names <- dplyr::recode(
-      disp_names,
-      player_name  = "Player Name",
-      pos_position = "Position",
-      pos_group    = "Position Group"
-    )
-    
-    colnames(df_disp) <- disp_names
-    
-    container <- make_dt_container_with_ath_tooltip(names(df_disp))
-    
-    dt <- DT::datatable(
-      df_disp,
-      container = container,   # ✅ add this
-      escape = FALSE,          # ✅ important so ⓘ renders
-      rownames = FALSE,
-      selection = "single",
-      options = list(
-        pageLength = 50,
-        scrollX = TRUE,
-        searchHighlight = TRUE,
-        columnDefs = list(
-          list(
-            targets = 0,
-            className = "dt-nowrap"
-          )
-        ),
-        order = if ("Athleticism Score" %in% names(df_disp)) {
-          list(list(which(names(df_disp) == "Athleticism Score") - 1, "desc"))
-        } else {
-          list()
-        }
-      )
-    )
-    
-    
-    # Color-code Athleticism Score if present
-    if ("Athleticism Score" %in% names(df_disp)) {
-      dt <- dt %>%
-        DT::formatRound("Athleticism Score", 1) %>%
-        DT::formatStyle(
-          "Athleticism Score",
-          backgroundColor = DT::styleInterval(
-            c(20, 40, 60, 80),
-            c("#ffe5e5", "#ffd6a5", "#fff3b0", "#d9f7be", "#b7eb8f")
-          ),
-          fontWeight = "bold"
-        )
-    }
-    
-    dt
-    
-  })
-  
-  
-  observeEvent(input$roster_table_rows_selected, {
-    idx <- input$roster_table_rows_selected
-    df <- roster_filtered()
-    if (length(idx) == 1 && nrow(df) >= idx) {
-      selected_player(df$player_name[idx])
-      # user can click Player Card tab; selection persists
-    }
-  }, ignoreInit = TRUE)
+
   
   # ---------- Player banner ----------
   output$player_banner <- renderUI({
@@ -1194,6 +1289,13 @@ server <- function(input, output, session) {
     pos_val   <- if (!is.null(pos_col))   row[[pos_col]][1] else NA
     class_val <- if (!is.null(class_col)) row[[class_col]][1] else NA
     headshot  <- if (!is.null(headshot_col)) row[[headshot_col]][1] else NA
+    
+    ht_val   <- if ("height_display"   %in% names(row)) fmt_measure(row$height_display)   else "—"
+    wt_val   <- if ("weight_display"   %in% names(row)) fmt_measure(row$weight_display)   else "—"
+    wing_val <- if ("wingspan_display" %in% names(row)) fmt_measure(row$wingspan_display) else "—"
+    hand_val <- if ("hand_display"     %in% names(row)) fmt_measure(row$hand_display)     else "—"
+    arm_val  <- if ("arm_display"      %in% names(row)) fmt_measure(row$arm_display)      else "—"
+    
     
     photos <- list(
       front = find_player_photo(nm, "front"),
@@ -1261,9 +1363,19 @@ server <- function(input, output, session) {
                 style="color:#374151;",
                 paste(
                   if (!is.na(group_val)) paste0("Group: ", group_val) else "",
-                  if (!is.na(pos_val)) paste0(" | Pos: ", pos_val) else "",
+                  if (!is.na(pos_val))   paste0(" | Pos: ", pos_val) else "",
                   if (!is.na(class_val)) paste0(" | Class: ", class_val) else "",
                   paste0(" | As-of: ", as.character(as_of_date))
+                )
+              ),
+              tags$div(
+                style="color:#374151; margin-top:4px;",
+                paste0(
+                  "Ht: ", ht_val,
+                  " | Wt: ", wt_val,
+                  " | Wing: ", wing_val,
+                  " | Hand: ", hand_val,
+                  " | Arm: ", arm_val
                 )
               ),
               
@@ -1438,6 +1550,23 @@ server <- function(input, output, session) {
     )
   })
   
+  output$radar_catapult_plot <- renderPlotly({
+    nm <- selected_player()
+    pid <- roster_view %>% filter(player_name == nm) %>% slice(1) %>% pull(player_id)
+    req(length(pid) == 1)
+    
+    df <- roster_percentiles_long %>%
+      filter(player_id == pid, metric_key %in% radar_catapult_metrics) %>%
+      left_join(radar_catapult_labels, by = "metric_key") %>%
+      mutate(axis = radar_label) %>%
+      transmute(player_name = nm, axis, percentile)
+    
+    render_plotly_radar(
+      df_long = df,
+      selected_player = nm,
+      title = "Catapult (position-group percentiles)"
+    )
+  })
   
   
   
@@ -1744,14 +1873,15 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     ][1] %||% NA_character_
     
     # Keys used in the positional comparison table:
-    keys <- unique(c(radar_force_metrics, radar_nord_metrics, weight_key))
+    keys <- unique(c(radar_force_metrics, radar_nord_metrics, radar_catapult_metrics, weight_key))
     keys <- keys[!is.na(keys)]
     if (length(keys) < 1) return(tibble::tibble())
     
     # Labels for radar metrics
-    label_df <- bind_rows(radar_force_labels, radar_nord_labels) %>%
+    label_df <- bind_rows(radar_force_labels, radar_nord_labels, radar_catapult_labels) %>%
       distinct(metric_key, radar_label) %>%
       mutate(radar_label = dplyr::coalesce(radar_label, pretty_metric_key(metric_key)))
+    
     
     # --- ADD LABEL FOR WEIGHT (so it pivots nicely) ---
     if (!is.na(weight_key)) {
@@ -1829,31 +1959,24 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     
     id_col <- "Player Name"
     metric_cols <- setdiff(names(df_vals), id_col)
-
     
-    # DT::datatable(
-    #   df_vals,
-    #   rownames = FALSE,
-    #   selection = "none",
-    #   options = list(
-    #     pageLength = 25,
-    #     scrollX = TRUE,
-    #     dom = "t",
-    #     columnDefs = list(list(targets = 0, className = "dt-nowrap"))
-    #   )
-    # ) %>%
-    #   DT::formatStyle(
-    #     metric_cols,
-    #     valueColumns = metric_cols,
-    #     transform = JS(
-    #       "function(x) {
-    #    if (x === null || x === undefined) return '';
-    #    var num = Number(x);
-    #    if (Number.isInteger(num)) return num.toString();
-    #    return num.toFixed(2).replace(/\\.00$/, '').replace(/0$/, '');
-    #  }"
-    #     )
-    #   )
+    # ---- Clean column headers (positional comparison table only) ----
+    clean_poscomp_header <- function(nm) {
+      nm <- gsub("Jump Height \\(Imp-Mom\\) in Inches", "Jump Height", nm)
+      nm <- gsub("Jump Height \\(Imp-Mom\\)", "Jump Height", nm)
+      nm <- gsub("RSI-modified \\(Imp-Mom\\)", "RSI-modified", nm)
+      
+      # generic cleanup for any future columns that include these suffixes
+      nm <- gsub("\\(Imp-Mom\\)", "", nm)
+      nm <- gsub(" in Inches", "", nm)
+      trimws(nm)
+    }
+    
+    names(df_vals) <- vapply(names(df_vals), clean_poscomp_header, character(1))
+    
+    # recompute metric_cols since names changed
+    metric_cols <- setdiff(names(df_vals), id_col)
+    
     
     dt <- DT::datatable(
       df_vals,
@@ -1898,11 +2021,11 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     cohort <- poscomp_cohort()
     validate(need(nrow(cohort) >= 1, "No cohort available for positional comparison."))
     
-    keys <- unique(c(radar_force_metrics, radar_nord_metrics))
+    keys <- unique(c(radar_force_metrics, radar_nord_metrics, radar_catapult_metrics))
     validate(need(length(keys) >= 3, "Not enough radar metrics available to plot."))
     
     # metric_key -> label
-    label_df <- bind_rows(radar_force_labels, radar_nord_labels) %>%
+    label_df <- bind_rows(radar_force_labels, radar_nord_labels, radar_catapult_labels) %>%
       distinct(metric_key, radar_label)
     
     long <- roster_percentiles_long %>%
@@ -1980,71 +2103,9 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     
   })
   
+
   
-  
-  # comparisons
-  
-  # output$compare_force_radar_plot <- renderPlot({
-  #   nm2 <- input$compare_player
-  #   req(!is.null(nm2), nzchar(nm2))
-  #   
-  #   pid2 <- roster_view %>% filter(player_name == nm2) %>% slice(1) %>% pull(player_id)
-  #   req(length(pid2) == 1)
-  #   
-  #   # Build a lookup of metric_key -> (system, metric_name)
-  #   key_df <- vald_tests_long_ui %>%
-  #     distinct(metric_key, source, metric_name, test_type) %>%
-  #     mutate(system = source)
-  #   
-  #   # Radar Plot Metrics
-  #   force_metric_names <- c(
-  #     "Jump Height (Imp-Mom) in Inches",
-  #     "RSI-modified",
-  #     "Force at Peak Power",
-  #     "Force at Zero Velocity",
-  #     "Eccentric Braking Impulse",
-  #     "Concentric Impulse"
-  #   )
-  #   
-  #   force_keys <- vapply(
-  #     force_metric_names,
-  #     function(nm) pick_metric_key_by_name("ForceDecks", nm, key_df),
-  #     character(1)
-  #   )
-  #   force_keys <- force_keys[!is.na(force_keys)]
-  #   
-  #   df <- roster_percentiles_long %>%
-  #     filter(player_id == pid2, metric_key %in% force_keys) %>%
-  #     left_join(
-  #       key_df %>% distinct(metric_key, metric_name),
-  #       by = "metric_key"
-  #     ) %>%
-  #     mutate(
-  #       label = norm_metric(metric_name),
-  #       label = factor(label, levels = force_metric_names[force_metric_names %in% label])
-  #     )
-  #   
-  #   if (nrow(df) < 3) return(ggplot() + theme_void() + labs(title = "Not enough ForceDecks metrics"))
-  #   
-  #   df <- df %>%
-  #     mutate(label_wrap = stringr::str_wrap(as.character(label), width = 16),
-  #            label_wrap = factor(label_wrap, levels = unique(label_wrap)))
-  #   
-  #   ggplot(df, aes(x = label_wrap, y = percentile, group = 1)) +
-  #     geom_polygon(alpha = 0.25) +
-  #     geom_path(linewidth = 1.2) +     # ✅ ADD LINE
-  #     geom_point(size = 2) +
-  #     coord_polar() +
-  #     ylim(0, 100) +
-  #     theme_minimal(base_size = 12) +
-  #     theme(
-  #       axis.title = element_blank(),
-  #       panel.grid.minor = element_blank(),
-  #       axis.text.x = element_text(size = 8)
-  #     ) +
-  #     labs(title = paste0("ForceDecks — ", nm2, " (position-group percentiles)"))
-  # })
-  
+# comps
   output$compare_force_radar_plot <- renderPlotly({
     nm2 <- input$compare_player
     req(!is.null(nm2), nzchar(nm2))
@@ -2092,46 +2153,6 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
   
   
   
-  # output$compare_nord_radar_plot <- renderPlot({
-  #   nm2 <- input$compare_player
-  #   req(!is.null(nm2), nzchar(nm2))
-  #   
-  #   pid2 <- roster_view %>% filter(player_name == nm2) %>% slice(1) %>% pull(player_id)
-  #   req(length(pid2) == 1)
-  #   
-  #   df <- roster_percentiles_long %>%
-  #     filter(player_id == pid2, metric_key %in% radar_nord_metrics) %>%
-  #     left_join(radar_nord_labels, by = "metric_key") %>%
-  #     mutate(radar_label = factor(radar_label, levels = radar_nord_labels$radar_label))
-  #   
-  #   if (nrow(df) < 3) {
-  #     missing <- setdiff(nord_metric_names, radar_nord_labels$radar_label)
-  #     msg <- if (length(missing) > 0) paste("Missing:", paste(missing, collapse = ", ")) else "Not enough metrics."
-  #     return(ggplot() + theme_void() + labs(title = "NordBord radar unavailable", subtitle = msg))
-  #   }
-  #   
-  #   df <- df %>%
-  #     mutate(
-  #       radar_label_wrap = stringr::str_wrap(radar_label, width = 16),
-  #       radar_label_wrap = factor(radar_label_wrap, levels = unique(radar_label_wrap))
-  #     )
-  #   
-  #   ggplot(df, aes(x = radar_label_wrap, y = percentile, group = 1)) +
-  #     geom_polygon(alpha = 0.25) +
-  #     geom_path(linewidth = 1.2) +     # ✅ ADD LINE
-  #     geom_point(size = 2) +
-  #     coord_polar(clip = "off") +
-  #     ylim(0, 100) +
-  #     theme_minimal(base_size = 12) +
-  #     theme(
-  #       axis.title = element_blank(),
-  #       panel.grid.minor = element_blank(),
-  #       axis.text.x = element_text(size = 8),
-  #       plot.margin = margin(12, 40, 12, 40)
-  #     ) +
-  #     labs(title = paste0("NordBord — ", nm2, " (position-group percentiles)"))
-  # })
-  
   output$compare_nord_radar_plot <- renderPlotly({
     nm2 <- input$compare_player
     req(!is.null(nm2), nzchar(nm2))
@@ -2154,6 +2175,29 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       df_long = df,
       selected_player = nm2,
       title = paste0("NordBord — ", nm2, " (position-group percentiles)")
+    )
+  })
+  
+  
+  output$compare_catapult_radar_plot <- renderPlotly({
+    nm2 <- input$compare_player
+    req(!is.null(nm2), nzchar(nm2))
+    
+    pid2 <- roster_view %>% filter(player_name == nm2) %>% slice(1) %>% pull(player_id)
+    req(length(pid2) == 1)
+    
+    df <- roster_percentiles_long %>%
+      filter(player_id == pid2, metric_key %in% radar_catapult_metrics) %>%
+      left_join(radar_catapult_labels, by = "metric_key") %>%
+      mutate(axis = stringr::str_wrap(radar_label, width = 16)) %>%
+      transmute(player_name = nm2, axis, percentile)
+    
+    validate(need(nrow(df) >= 3, "Not enough Catapult metrics for radar."))
+    
+    render_plotly_radar(
+      df_long = df,
+      selected_player = nm2,
+      title = paste0("Catapult — ", nm2, " (position-group percentiles)")
     )
   })
   
