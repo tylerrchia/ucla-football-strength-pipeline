@@ -440,6 +440,18 @@ default_metric_for_slider <- {
 group_col <- if ("pos_group" %in% names(roster_view)) "pos_group" else if ("Group" %in% names(roster_view)) "Group" else NULL
 pos_col   <- if ("pos_position" %in% names(roster_view)) "pos_position" else if ("Position" %in% names(roster_view)) "Position" else NULL
 
+# Catapult tab position column (robust)
+cat_pos_col <- if (!is.null(pos_col)) {
+  pos_col
+} else if ("pos_position" %in% names(roster_view)) {
+  "pos_position"
+} else if ("Position" %in% names(roster_view)) {
+  "Position"
+} else {
+  NULL
+}
+
+
 class_col <- if ("class_year_base" %in% names(roster_view)) {
   "class_year_base"     # best for slicer: FR/SO/JR/SR
 } else if ("class_year" %in% names(roster_view)) {
@@ -660,6 +672,48 @@ ui <- navbarPage(
     )
   ),
   
+  # Catapult tab
+  tabPanel(
+    "Catapult",
+    sidebarLayout(
+      sidebarPanel(
+        dateRangeInput(
+          "cat_dates",
+          "Date range",
+          start = min(vald_tests_long_ui$date[vald_tests_long_ui$source == "Catapult"], na.rm = TRUE),
+          end   = max(vald_tests_long_ui$date[vald_tests_long_ui$source == "Catapult"], na.rm = TRUE)
+        ),
+        if (!is.null(cat_pos_col)) {
+          selectInput(
+            "cat_pos_filter", "Position",
+            choices = c("All", sort(unique(na.omit(roster_view[[cat_pos_col]])))),
+            selected = "All",
+            multiple = TRUE
+          )
+        }
+        ,
+        helpText("Charts show latest Catapult value per player within the date range."),
+        width = 3
+      ),
+      mainPanel(
+        fluidRow(
+          column(6, plotlyOutput("cat_plot_player_load", height = 320)),
+          column(6, plotlyOutput("cat_plot_player_load_min", height = 320))
+        ),
+        fluidRow(
+          column(6, plotlyOutput("cat_plot_hsd_12", height = 320)),
+          column(6, plotlyOutput("cat_plot_sprint_16", height = 320))
+        ),
+        fluidRow(
+          column(6, plotlyOutput("cat_plot_max_v", height = 320)),
+          column(6, plotlyOutput("cat_plot_explosive", height = 320))
+        ),
+        width = 9
+      )
+    )
+  ),
+  
+  
   # ============== Page 3: Correlations ==============
   tabPanel(
     "Correlations",
@@ -716,6 +770,8 @@ ui <- navbarPage(
 # ---------------------------
 
 server <- function(input, output, session) {
+  
+  
   
   fmt_measure <- function(x) {
     if (is.null(x) || length(x) == 0) return("—")
@@ -793,6 +849,8 @@ server <- function(input, output, session) {
   make_all_toggle("pos_filter")
   make_all_toggle("class_filter")  # optional
   make_all_toggle("pctl_metric")   # ✅ do this too since metric is now multi
+  make_all_toggle("cat_pos_filter")
+  
   
   
   # Update test types when system changes
@@ -1433,47 +1491,7 @@ server <- function(input, output, session) {
   
   
   
-  # ---------- Radar (MVP: NordBord avg percentile vs ForceDecks avg percentile) ----------
-  
-  # output$radar_force_plot <- renderPlot({
-  #   nm <- selected_player()
-  #   pid <- roster_view %>% filter(player_name == nm) %>% slice(1) %>% pull(player_id)
-  #   if (length(pid) == 0) return(NULL)
-  #   
-  #   df <- roster_percentiles_long %>%
-  #     filter(player_id == pid, metric_key %in% radar_force_metrics) %>%
-  #     left_join(radar_force_labels, by = "metric_key") %>%
-  #     mutate(radar_label = factor(radar_label, levels = radar_force_labels$radar_label))
-  #   
-  #   if (nrow(df) < 3) {
-  #     missing <- setdiff(force_metric_names, radar_force_labels$radar_label)
-  #     msg <- if (length(missing) > 0) paste("Missing:", paste(missing, collapse = ", ")) else "Not enough metrics."
-  #     return(ggplot() + theme_void() + labs(title = "ForceDecks radar unavailable", subtitle = msg))
-  #   }
-  #   
-  #   df <- df %>%
-  #     mutate(
-  #       radar_label_wrap = stringr::str_wrap(radar_label, width = 16),
-  #       radar_label_wrap = factor(radar_label_wrap, levels = unique(radar_label_wrap))
-  #     )
-  #   
-  #   ggplot(df, aes(x = radar_label_wrap, y = percentile, group = 1)) +
-  #     geom_polygon(alpha = 0.25) +
-  #     geom_path(linewidth = 1.2) +     # ✅ ADD LINE
-  #     geom_point(size = 2) +
-  #     coord_polar(clip = "off") +
-  #     ylim(0, 100) +
-  #     theme_minimal(base_size = 12) +
-  #     theme(
-  #       axis.title = element_blank(),
-  #       panel.grid.minor = element_blank(),
-  #       axis.text.x = element_text(size = 8),
-  #       plot.margin = margin(12, 40, 12, 40)  # give labels room
-  #     ) +
-  #     labs(title = "ForceDecks (position-group percentiles)")
-  # 
-  # 
-  # })
+  # ---------- Radar 
   
   output$radar_force_plot <- renderPlotly({
     nm <- selected_player()
@@ -1483,55 +1501,11 @@ server <- function(input, output, session) {
     df <- roster_percentiles_long %>%
       filter(player_id == pid, metric_key %in% radar_force_metrics) %>%
       left_join(radar_force_labels, by = "metric_key") %>%
-      mutate(axis = radar_label)
+      mutate(axis = radar_label) %>%
+      transmute(player_name = nm, axis, percentile)
     
-    render_plotly_radar(
-      df_long = df,
-      selected_player = nm,
-      title = "ForceDecks (position-group percentiles)"
-    )
+    render_plotly_radar(df, nm, "ForceDecks (position-group percentiles)")
   })
-  
-  
-
-    
-  
-  # output$radar_nord_plot <- renderPlot({
-  #   nm <- selected_player()
-  #   pid <- roster_view %>% filter(player_name == nm) %>% slice(1) %>% pull(player_id)
-  #   if (length(pid) == 0) return(NULL)
-  #   
-  #   df <- roster_percentiles_long %>%
-  #     filter(player_id == pid, metric_key %in% radar_nord_metrics) %>%
-  #     left_join(radar_nord_labels, by = "metric_key") %>%
-  #     mutate(radar_label = factor(radar_label, levels = radar_nord_labels$radar_label))
-  #   
-  #   if (nrow(df) < 3) {
-  #     missing <- setdiff(nord_metric_names, radar_nord_labels$radar_label)
-  #     msg <- if (length(missing) > 0) paste("Missing:", paste(missing, collapse = ", ")) else "Not enough metrics."
-  #     return(ggplot() + theme_void() + labs(title = "NordBord radar unavailable", subtitle = msg))
-  #   }
-  #   
-  #   df <- df %>%
-  #     mutate(
-  #       radar_label_wrap = stringr::str_wrap(radar_label, width = 16),
-  #       radar_label_wrap = factor(radar_label_wrap, levels = unique(radar_label_wrap))
-  #     )
-  #   
-  #   ggplot(df, aes(x = radar_label_wrap, y = percentile, group = 1)) +
-  #     geom_polygon(alpha = 0.25) +
-  #     geom_path(linewidth = 1.2) +     # ✅ ADD LINE
-  #     geom_point(size = 2) +
-  #     coord_polar(clip = "off") +
-  #     ylim(0, 100) +
-  #     theme_minimal(base_size = 12) +
-  #     theme(
-  #       axis.title = element_blank(),
-  #       panel.grid.minor = element_blank(),
-  #       axis.text.x = element_text(size = 8),
-  #       plot.margin = margin(12, 40, 12, 40)  # give labels room
-  #     ) + labs(title = "NordBord (position-group percentiles)")
-  #   })
   
   output$radar_nord_plot <- renderPlotly({
     nm <- selected_player()
@@ -1541,14 +1515,14 @@ server <- function(input, output, session) {
     df <- roster_percentiles_long %>%
       filter(player_id == pid, metric_key %in% radar_nord_metrics) %>%
       left_join(radar_nord_labels, by = "metric_key") %>%
-      mutate(axis = radar_label)
+      mutate(axis = radar_label) %>%
+      transmute(player_name = nm, axis, percentile)
     
-    render_plotly_radar(
-      df_long = df,
-      selected_player = nm,
-      title = "NordBord (position-group percentiles)"
-    )
+    render_plotly_radar(df, nm, "NordBord (position-group percentiles)")
   })
+  
+  
+  
   
   output$radar_catapult_plot <- renderPlotly({
     nm <- selected_player()
@@ -1653,10 +1627,50 @@ server <- function(input, output, session) {
         Source = source,
         Test   = test_type,
         Metric = metric_name,
-        Value  = as.numeric(metric_value),
+        Value  = suppressWarnings(as.numeric(metric_value)),
         Units  = units,
-        `Position Percentile (as-of)` = as.numeric(RosterPercentile)
+        `Position Percentile (as-of)` = suppressWarnings(as.numeric(RosterPercentile))
       )
+    
+    coldefs <- list(
+      list(targets = 0, className = "dt-nowrap")
+    )
+    
+    val_idx <- match("Value", names(df_out))
+    if (!is.na(val_idx)) {
+      coldefs <- append(coldefs, list(list(
+        targets = val_idx - 1,
+        render = DT::JS(
+          "function(data, type, row, meta) {
+           if (data === null || data === undefined || data === '') return '';
+           var num = Number(data);
+           if (type === 'display') {
+             if (Number.isInteger(num)) return num.toString();
+             return num.toFixed(2).replace(/\\.00$/, '').replace(/0$/, '');
+           }
+           return num;
+         }"
+        )
+      )))
+    }
+    
+    pct_idx <- match("Position Percentile (as-of)", names(df_out))
+    if (!is.na(pct_idx)) {
+      coldefs <- append(coldefs, list(list(
+        targets = pct_idx - 1,
+        render = DT::JS(
+          "function(data, type, row, meta) {
+           if (data === null || data === undefined || data === '') return '';
+           var num = Number(data);
+           if (type === 'display') {
+             if (Number.isInteger(num)) return num.toString();
+             return num.toFixed(2).replace(/\\.00$/, '');
+           }
+           return num;
+         }"
+        )
+      )))
+    }
     
     DT::datatable(
       df_out,
@@ -1665,44 +1679,11 @@ server <- function(input, output, session) {
       options = list(
         pageLength = 25,
         scrollX = TRUE,
-        columnDefs = list(
-          list(targets = 0, className = "dt-nowrap"),
-          
-          # Value column: 2dp max, trim trailing zeros
-          list(
-            targets = which(names(df_out) == "Value") - 1,
-            render = DT::JS(
-              "function(data, type, row, meta) {
-               if (data === null || data === undefined || data === '') return '';
-               var num = Number(data);
-               if (type === 'display') {
-                 if (Number.isInteger(num)) return num.toString();
-                 return num.toFixed(2).replace(/\\.00$/, '').replace(/0$/, '');
-               }
-               return num; // keep numeric for sort/filter
-             }"
-            )
-          ),
-          
-          # Position Percentile: max 2dp, drop .00
-          list(
-            targets = which(names(df_out) == "Position Percentile (as-of)") - 1,
-            render = DT::JS(
-              "function(data, type, row, meta) {
-               if (data === null || data === undefined || data === '') return '';
-               var num = Number(data);
-               if (type === 'display') {
-                 if (Number.isInteger(num)) return num.toString();
-                 return num.toFixed(2).replace(/\\.00$/, '');
-               }
-               return num; // keep numeric for sort/filter
-             }"
-            )
-          )
-        )
+        columnDefs = coldefs
       )
     )
   })
+  
   
   
   
@@ -1866,35 +1847,44 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     if (nrow(cohort) < 1) return(tibble::tibble())
     
     # --- ADD WEIGHT KEY (ForceDecks) ---
-    # Try to find the metric_key that ends with "Athlete Standing Weight"
     weight_key <- keep_roster_metrics[
       startsWith(keep_roster_metrics, "ForceDecks|") &
         grepl("\\|Athlete Standing Weight$", keep_roster_metrics)
-    ][1] %||% NA_character_
+    ][1]
+    if (length(weight_key) == 0) weight_key <- NA_character_
     
     # Keys used in the positional comparison table:
     keys <- unique(c(radar_force_metrics, radar_nord_metrics, radar_catapult_metrics, weight_key))
-    keys <- keys[!is.na(keys)]
+    keys <- keys[!is.na(keys) & nzchar(as.character(keys))]
     if (length(keys) < 1) return(tibble::tibble())
     
     # Labels for radar metrics
     label_df <- bind_rows(radar_force_labels, radar_nord_labels, radar_catapult_labels) %>%
       distinct(metric_key, radar_label) %>%
-      mutate(radar_label = dplyr::coalesce(radar_label, pretty_metric_key(metric_key)))
+      mutate(
+        radar_label = as.character(radar_label),
+        radar_label = if_else(is.na(radar_label), as.character(metric_key), radar_label)
+      )
     
-    
-    # --- ADD LABEL FOR WEIGHT (so it pivots nicely) ---
+    # --- ADD LABEL FOR WEIGHT ---
     if (!is.na(weight_key)) {
       label_df <- bind_rows(
         label_df,
-        tibble::tibble(metric_key = weight_key, radar_label = "Athlete Standing Weight")
+        tibble::tibble(
+          metric_key = weight_key, 
+          radar_label = "Athlete Standing Weight"
+        )
       ) %>% distinct(metric_key, .keep_all = TRUE)
     }
     
     # make labels unique to prevent pivot_wider issues
     label_df <- label_df %>%
       group_by(radar_label) %>%
-      mutate(radar_label = ifelse(n() > 1, paste0(radar_label, " [", row_number(), "]"), radar_label)) %>%
+      mutate(radar_label = if_else(
+        n() > 1, 
+        paste0(radar_label, " [", row_number(), "]"), 
+        radar_label
+      )) %>%
       ungroup()
     
     latest_vals <- vald_tests_long_ui %>%
@@ -1903,8 +1893,8 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       slice_max(date, n = 1, with_ties = FALSE) %>%
       ungroup() %>%
       transmute(
-        player_name,
-        metric_key,
+        player_name = as.character(player_name),
+        metric_key = as.character(metric_key),
         raw_value = suppressWarnings(as.numeric(metric_value))
       )
     
@@ -1912,33 +1902,54 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     
     long <- latest_vals %>%
       left_join(label_df, by = "metric_key") %>%
-      mutate(col = dplyr::coalesce(radar_label, pretty_metric_key(metric_key))) %>%
-      filter(!is.na(col), nzchar(col))
+      mutate(
+        radar_label = as.character(radar_label),
+        col = if_else(
+          is.na(radar_label) | !nzchar(radar_label),
+          as.character(metric_key),
+          radar_label
+        )
+      ) %>%
+      filter(!is.na(col), nzchar(as.character(col)))
     
     out <- long %>%
-      select(player_name, col, raw_value) %>%
-      tidyr::pivot_wider(names_from = col, values_from = raw_value)
+      transmute(
+        player_name = as.character(player_name),
+        col = as.character(col),
+        raw_value = as.numeric(raw_value)
+      ) %>%
+      group_by(player_name, col) %>%
+      summarise(
+        raw_value = {
+          v <- raw_value[!is.na(raw_value)]
+          if (length(v) == 0) NA_real_ else v[1]
+        },
+        .groups = "drop"
+      ) %>%
+      tidyr::pivot_wider(
+        names_from = col,
+        values_from = raw_value,
+        values_fill = NA_real_
+      )
     
-    # ---- Add Athleticism Score from roster_view (composite column) ----
-    if (HAS_ATH) {
+    # ---- Add Athleticism Score from roster_view ----
+    if (HAS_ATH && ATH_KEY %in% names(roster_view)) {
       ath_df <- roster_view %>%
         filter(player_id %in% cohort$player_id) %>%
         select(player_name, !!ATH_KEY) %>%
+        mutate(player_name = as.character(player_name)) %>%
         rename(`Athleticism Score` = !!ATH_KEY)
       
       out <- out %>%
         left_join(ath_df, by = "player_name")
     }
     
-    
     nm <- selected_player()
-    
     weight_col <- "Athlete Standing Weight"
     
     out %>%
       rename(`Player Name` = player_name) %>%
       {
-        # Put Athleticism right after Player Name (if present), then Weight (if present)
         base <- .
         cols <- c("Player Name")
         if ("Athleticism Score" %in% names(base)) cols <- c(cols, "Athleticism Score")
@@ -1948,35 +1959,46 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       mutate(.sel = (`Player Name` == nm)) %>%
       arrange(desc(.sel), `Player Name`) %>%
       select(-.sel)
-    
   })
-  
   
   output$poscomp_table <- renderDT({
     df_vals <- poscomp_table_df()
     
-    validate(need(nrow(df_vals) > 0, "No positional comparison data available."))
+    # 🔧 Convert to data frame SAFELY
+    if (!is.data.frame(df_vals) || nrow(df_vals) == 0) {
+      return(
+        DT::datatable(
+          data.frame(Message = "No positional comparison data available."),
+          rownames = FALSE,
+          options = list(dom = 't')
+        )
+      )
+    }
+    
+    df_vals <- as.data.frame(df_vals, check.names = FALSE, stringsAsFactors = FALSE)
     
     id_col <- "Player Name"
     metric_cols <- setdiff(names(df_vals), id_col)
     
-    # ---- Clean column headers (positional comparison table only) ----
+    # ---- Clean column headers ----
     clean_poscomp_header <- function(nm) {
+      if (is.null(nm) || length(nm) == 0) return("")
+      nm <- as.character(nm)[1]
+      if (is.na(nm) || !nzchar(nm)) return("")
+      
       nm <- gsub("Jump Height \\(Imp-Mom\\) in Inches", "Jump Height", nm)
       nm <- gsub("Jump Height \\(Imp-Mom\\)", "Jump Height", nm)
       nm <- gsub("RSI-modified \\(Imp-Mom\\)", "RSI-modified", nm)
-      
-      # generic cleanup for any future columns that include these suffixes
       nm <- gsub("\\(Imp-Mom\\)", "", nm)
       nm <- gsub(" in Inches", "", nm)
       trimws(nm)
     }
     
-    names(df_vals) <- vapply(names(df_vals), clean_poscomp_header, character(1))
+    new_names <- sapply(names(df_vals), clean_poscomp_header, USE.NAMES = FALSE)
+    new_names <- as.character(new_names)
+    names(df_vals) <- new_names
     
-    # recompute metric_cols since names changed
     metric_cols <- setdiff(names(df_vals), id_col)
-    
     
     dt <- DT::datatable(
       df_vals,
@@ -1995,7 +2017,6 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       )
     )
     
-    # Color-code Athleticism Score if present
     if ("Athleticism Score" %in% names(df_vals)) {
       dt <- dt %>%
         DT::formatRound("Athleticism Score", 1) %>%
@@ -2010,28 +2031,56 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     }
     
     dt
-    
   })
-  
   
   
   output$poscomp_radar <- renderPlotly({
     req(isTRUE(input$poscomp_show_radar))
     
     cohort <- poscomp_cohort()
-    validate(need(nrow(cohort) >= 1, "No cohort available for positional comparison."))
+    if (nrow(cohort) < 1) {
+      return(plotly::plot_ly() %>% 
+               plotly::layout(title = "No cohort available for positional comparison"))
+    }
     
     keys <- unique(c(radar_force_metrics, radar_nord_metrics, radar_catapult_metrics))
-    validate(need(length(keys) >= 3, "Not enough radar metrics available to plot."))
+    keys <- keys[!is.na(keys) & nzchar(as.character(keys))]
+    
+    if (length(keys) < 3) {
+      return(plotly::plot_ly() %>% 
+               plotly::layout(title = "Not enough radar metrics available to plot"))
+    }
     
     # metric_key -> label
     label_df <- bind_rows(radar_force_labels, radar_nord_labels, radar_catapult_labels) %>%
-      distinct(metric_key, radar_label)
+      distinct(metric_key, radar_label) %>%
+      mutate(radar_label = as.character(radar_label))
     
     long <- roster_percentiles_long %>%
       filter(player_id %in% cohort$player_id, metric_key %in% keys) %>%
       left_join(label_df, by = "metric_key") %>%
-      mutate(axis = dplyr::coalesce(radar_label, pretty_metric_key(metric_key)))
+      mutate(
+        radar_label = as.character(radar_label),
+        metric_key = as.character(metric_key),
+        axis = case_when(
+          !is.na(radar_label) & nzchar(radar_label) ~ radar_label,
+          TRUE ~ {
+            tryCatch(
+              as.character(pretty_metric_key(metric_key)),
+              error = function(e) as.character(metric_key)
+            )
+          }
+        ),
+        # Ensure all columns are proper types
+        player_name = as.character(player_name),
+        percentile = as.numeric(percentile)
+      ) %>%
+      filter(!is.na(axis), nzchar(axis), !is.na(player_name), nzchar(player_name))
+    
+    if (nrow(long) == 0) {
+      return(plotly::plot_ly() %>% 
+               plotly::layout(title = "No valid metric data available for radar plot"))
+    }
     
     # Make sure every player has every axis (keeps polygons aligned)
     axis_levels <- sort(unique(long$axis))
@@ -2039,11 +2088,15 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       tidyr::complete(
         player_id, player_name, axis = axis_levels,
         fill = list(percentile = NA_real_)
+      ) %>%
+      mutate(
+        # Re-ensure types after complete() which can introduce NAs
+        player_name = as.character(player_name),
+        axis = as.character(axis)
       )
     
     make_closed <- function(df_one) {
       df_one <- df_one %>% arrange(axis)
-      # close loop by repeating first axis point
       bind_rows(df_one, df_one %>% slice(1))
     }
     
@@ -2056,7 +2109,6 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
         filter(player_name == pn) %>%
         make_closed()
       
-      # if a player has all NA, skip (prevents plotly oddness)
       if (all(is.na(df_one$percentile))) next
       
       is_sel <- identical(pn, nm_sel)
@@ -2072,24 +2124,16 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
           text = ~player_name,
           hovertemplate = "%{text}<br>%{theta}: %{r:.1f}<extra></extra>",
           connectgaps = TRUE,
-          
-          # ✅ make lines actually visible
           line = list(
             width = if (is_sel) 4 else 1.5,
             shape = "linear"
           ),
-          
-          # ✅ fill only the selected player to make it obvious
           fill = if (is_sel) "toself" else "none",
           fillcolor = if (is_sel) "rgba(39,116,174,0.12)" else NULL,
-          
-          # ✅ make markers visible but not overwhelming
           marker = list(size = if (is_sel) 6 else 4),
-          
           opacity = if (is_sel) 1 else 0.15,
           showlegend = is_sel
         )
-      
     }
     
     p %>%
@@ -2100,12 +2144,143 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
         margin = list(l = 40, r = 40, t = 40, b = 40),
         showlegend = TRUE
       )
-    
   })
   
-
+  # comps
+  # output$compare_force_radar_plot <- renderPlotly({
+  #   nm2 <- input$compare_player
+  #   req(!is.null(nm2), nzchar(nm2))
+  #   
+  #   pid2 <- roster_view %>% filter(player_name == nm2) %>% slice(1) %>% pull(player_id)
+  #   req(length(pid2) == 1)
+  #   
+  #   key_df <- vald_tests_long_ui %>%
+  #     distinct(metric_key, source, metric_name, test_type) %>%
+  #     mutate(system = source)
+  #   
+  #   force_metric_names <- c(
+  #     "Jump Height (Imp-Mom) in Inches",
+  #     "RSI-modified",
+  #     "Force at Peak Power",
+  #     "Force at Zero Velocity",
+  #     "Eccentric Braking Impulse",
+  #     "Concentric Impulse"
+  #   )
+  #   
+  #   force_keys <- vapply(
+  #     force_metric_names,
+  #     function(nm) pick_metric_key_by_name("ForceDecks", nm, key_df),
+  #     character(1)
+  #   )
+  #   force_keys <- force_keys[!is.na(force_keys)]
+  #   
+  #   if (length(force_keys) < 3) {
+  #     return(plotly::plot_ly() %>% 
+  #              plotly::layout(title = "Not enough ForceDecks metrics for radar"))
+  #   }
+  #   
+  #   df <- roster_percentiles_long %>%
+  #     filter(player_id == pid2, metric_key %in% force_keys) %>%
+  #     left_join(key_df %>% distinct(metric_key, metric_name), by = "metric_key") %>%
+  #     mutate(
+  #       metric_name = as.character(metric_name),
+  #       metric_name = if_else(is.na(metric_name) | !nzchar(metric_name), "Unknown", metric_name)
+  #     ) %>%
+  #     transmute(
+  #       player_name = as.character(nm2), 
+  #       axis = as.character(norm_metric(metric_name)), 
+  #       percentile = as.numeric(percentile)
+  #     ) %>%
+  #     filter(!is.na(axis), nzchar(axis), !is.na(percentile))
+  #   
+  #   if (nrow(df) < 3) {
+  #     return(plotly::plot_ly() %>% 
+  #              plotly::layout(title = "Not enough ForceDecks data available"))
+  #   }
+  #   
+  #   render_plotly_radar(
+  #     df_long = df,
+  #     selected_player = nm2,
+  #     title = paste0("ForceDecks — ", nm2, " (position-group percentiles)")
+  #   )
+  # })
+  # 
+  # output$compare_nord_radar_plot <- renderPlotly({
+  #   nm2 <- input$compare_player
+  #   req(!is.null(nm2), nzchar(nm2))
+  #   
+  #   pid2 <- roster_view %>% filter(player_name == nm2) %>% slice(1) %>% pull(player_id)
+  #   req(length(pid2) == 1)
+  #   
+  #   if (length(radar_nord_metrics) < 3) {
+  #     return(plotly::plot_ly() %>% 
+  #              plotly::layout(title = "Not enough NordBord metrics configured"))
+  #   }
+  #   
+  #   df <- roster_percentiles_long %>%
+  #     filter(player_id == pid2, metric_key %in% radar_nord_metrics) %>%
+  #     left_join(radar_nord_labels, by = "metric_key") %>%
+  #     mutate(
+  #       radar_label = as.character(radar_label),
+  #       radar_label = if_else(is.na(radar_label) | !nzchar(radar_label), "Unknown", radar_label)
+  #     ) %>%
+  #     transmute(
+  #       player_name = as.character(nm2), 
+  #       axis = as.character(radar_label), 
+  #       percentile = as.numeric(percentile)
+  #     ) %>%
+  #     filter(!is.na(axis), nzchar(axis), !is.na(percentile))
+  #   
+  #   if (nrow(df) < 3) {
+  #     return(plotly::plot_ly() %>% 
+  #              plotly::layout(title = "Not enough NordBord data available"))
+  #   }
+  #   
+  #   render_plotly_radar(
+  #     df_long = df,
+  #     selected_player = nm2,
+  #     title = paste0("NordBord — ", nm2, " (position-group percentiles)")
+  #   )
+  # })
+  # 
+  # output$compare_catapult_radar_plot <- renderPlotly({
+  #   nm2 <- input$compare_player
+  #   req(!is.null(nm2), nzchar(nm2))
+  #   
+  #   pid2 <- roster_view %>% filter(player_name == nm2) %>% slice(1) %>% pull(player_id)
+  #   req(length(pid2) == 1)
+  #   
+  #   if (length(radar_catapult_metrics) < 3) {
+  #     return(plotly::plot_ly() %>% 
+  #              plotly::layout(title = "Not enough Catapult metrics configured"))
+  #   }
+  #   
+  #   df <- roster_percentiles_long %>%
+  #     filter(player_id == pid2, metric_key %in% radar_catapult_metrics) %>%
+  #     left_join(radar_catapult_labels, by = "metric_key") %>%
+  #     mutate(
+  #       radar_label = as.character(radar_label),
+  #       radar_label = if_else(is.na(radar_label) | !nzchar(radar_label), "Unknown", radar_label)
+  #     ) %>%
+  #     transmute(
+  #       player_name = as.character(nm2), 
+  #       axis = as.character(radar_label), 
+  #       percentile = as.numeric(percentile)
+  #     ) %>%
+  #     filter(!is.na(axis), nzchar(axis), !is.na(percentile))
+  #   
+  #   if (nrow(df) < 3) {
+  #     return(plotly::plot_ly() %>% 
+  #              plotly::layout(title = "Not enough Catapult data available"))
+  #   }
+  #   
+  #   render_plotly_radar(
+  #     df_long = df,
+  #     selected_player = nm2,
+  #     title = paste0("Catapult — ", nm2, " (position-group percentiles)")
+  #   )
+  # })
   
-# comps
   output$compare_force_radar_plot <- renderPlotly({
     nm2 <- input$compare_player
     req(!is.null(nm2), nzchar(nm2))
@@ -2133,16 +2308,61 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     )
     force_keys <- force_keys[!is.na(force_keys)]
     
+    if (length(force_keys) < 3) {
+      # Return empty polar plot
+      return(
+        plotly::plot_ly(
+          type = "scatterpolar",
+          r = c(0),
+          theta = c("—"),
+          mode = "lines",
+          line = list(color = "rgba(0,0,0,0)"),
+          showlegend = FALSE
+        ) %>%
+          plotly::layout(
+            title = list(text = "Not enough ForceDecks metrics configured"),
+            polar = list(
+              radialaxis = list(visible = FALSE),
+              angularaxis = list(visible = FALSE)
+            )
+          )
+      )
+    }
+    
     df <- roster_percentiles_long %>%
       filter(player_id == pid2, metric_key %in% force_keys) %>%
       left_join(key_df %>% distinct(metric_key, metric_name), by = "metric_key") %>%
       mutate(
-        axis = stringr::str_wrap(norm_metric(metric_name), width = 16),
-        axis = factor(axis, levels = stringr::str_wrap(force_metric_names, width = 16))
+        metric_name = as.character(metric_name),
+        metric_name = if_else(is.na(metric_name) | !nzchar(metric_name), "Unknown", metric_name)
       ) %>%
-      transmute(player_name = nm2, axis = as.character(axis), percentile)
+      transmute(
+        player_name = as.character(nm2), 
+        axis = as.character(norm_metric(metric_name)), 
+        percentile = as.numeric(percentile)
+      ) %>%
+      filter(!is.na(axis), nzchar(axis), !is.na(percentile))
     
-    validate(need(nrow(df) >= 3, "Not enough ForceDecks metrics for radar."))
+    if (nrow(df) < 3) {
+      # Return empty polar plot
+      return(
+        plotly::plot_ly(
+          type = "scatterpolar",
+          r = c(0),
+          theta = c("—"),
+          mode = "lines",
+          line = list(color = "rgba(0,0,0,0)"),
+          showlegend = FALSE
+        ) %>%
+          plotly::layout(
+            title = list(text = "Not enough ForceDecks data available"),
+            polar = list(
+              radialaxis = list(visible = FALSE),
+              angularaxis = list(visible = FALSE)
+            )
+          )
+      )
+    }
     
     render_plotly_radar(
       df_long = df,
@@ -2151,8 +2371,6 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     )
   })
   
-  
-  
   output$compare_nord_radar_plot <- renderPlotly({
     nm2 <- input$compare_player
     req(!is.null(nm2), nzchar(nm2))
@@ -2160,16 +2378,59 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     pid2 <- roster_view %>% filter(player_name == nm2) %>% slice(1) %>% pull(player_id)
     req(length(pid2) == 1)
     
+    if (length(radar_nord_metrics) < 3) {
+      return(
+        plotly::plot_ly(
+          type = "scatterpolar",
+          r = c(0),
+          theta = c("—"),
+          mode = "lines",
+          line = list(color = "rgba(0,0,0,0)"),
+          showlegend = FALSE
+        ) %>%
+          plotly::layout(
+            title = list(text = "Not enough NordBord metrics configured"),
+            polar = list(
+              radialaxis = list(visible = FALSE),
+              angularaxis = list(visible = FALSE)
+            )
+          )
+      )
+    }
+    
     df <- roster_percentiles_long %>%
       filter(player_id == pid2, metric_key %in% radar_nord_metrics) %>%
       left_join(radar_nord_labels, by = "metric_key") %>%
       mutate(
-        axis = stringr::str_wrap(radar_label, width = 16),
-        axis = factor(axis, levels = stringr::str_wrap(radar_nord_labels$radar_label, width = 16))
+        radar_label = as.character(radar_label),
+        radar_label = if_else(is.na(radar_label) | !nzchar(radar_label), "Unknown", radar_label)
       ) %>%
-      transmute(player_name = nm2, axis = as.character(axis), percentile)
+      transmute(
+        player_name = as.character(nm2), 
+        axis = as.character(radar_label), 
+        percentile = as.numeric(percentile)
+      ) %>%
+      filter(!is.na(axis), nzchar(axis), !is.na(percentile))
     
-    validate(need(nrow(df) >= 3, "Not enough NordBord metrics for radar."))
+    if (nrow(df) < 3) {
+      return(
+        plotly::plot_ly(
+          type = "scatterpolar",
+          r = c(0),
+          theta = c("—"),
+          mode = "lines",
+          line = list(color = "rgba(0,0,0,0)"),
+          showlegend = FALSE
+        ) %>%
+          plotly::layout(
+            title = list(text = "Not enough NordBord data available"),
+            polar = list(
+              radialaxis = list(visible = FALSE),
+              angularaxis = list(visible = FALSE)
+            )
+          )
+      )
+    }
     
     render_plotly_radar(
       df_long = df,
@@ -2178,7 +2439,6 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     )
   })
   
-  
   output$compare_catapult_radar_plot <- renderPlotly({
     nm2 <- input$compare_player
     req(!is.null(nm2), nzchar(nm2))
@@ -2186,19 +2446,229 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     pid2 <- roster_view %>% filter(player_name == nm2) %>% slice(1) %>% pull(player_id)
     req(length(pid2) == 1)
     
+    if (length(radar_catapult_metrics) < 3) {
+      return(
+        plotly::plot_ly(
+          type = "scatterpolar",
+          r = c(0),
+          theta = c("—"),
+          mode = "lines",
+          line = list(color = "rgba(0,0,0,0)"),
+          showlegend = FALSE
+        ) %>%
+          plotly::layout(
+            title = list(text = "Not enough Catapult metrics configured"),
+            polar = list(
+              radialaxis = list(visible = FALSE),
+              angularaxis = list(visible = FALSE)
+            )
+          )
+      )
+    }
+    
     df <- roster_percentiles_long %>%
       filter(player_id == pid2, metric_key %in% radar_catapult_metrics) %>%
       left_join(radar_catapult_labels, by = "metric_key") %>%
-      mutate(axis = stringr::str_wrap(radar_label, width = 16)) %>%
-      transmute(player_name = nm2, axis, percentile)
+      mutate(
+        radar_label = as.character(radar_label),
+        radar_label = if_else(is.na(radar_label) | !nzchar(radar_label), "Unknown", radar_label)
+      ) %>%
+      transmute(
+        player_name = as.character(nm2), 
+        axis = as.character(radar_label), 
+        percentile = as.numeric(percentile)
+      ) %>%
+      filter(!is.na(axis), nzchar(axis), !is.na(percentile))
     
-    validate(need(nrow(df) >= 3, "Not enough Catapult metrics for radar."))
+    if (nrow(df) < 3) {
+      return(
+        plotly::plot_ly(
+          type = "scatterpolar",
+          r = c(0),
+          theta = c("—"),
+          mode = "lines",
+          line = list(color = "rgba(0,0,0,0)"),
+          showlegend = FALSE
+        ) %>%
+          plotly::layout(
+            title = list(text = "Not enough Catapult data available"),
+            polar = list(
+              radialaxis = list(visible = FALSE),
+              angularaxis = list(visible = FALSE)
+            )
+          )
+      )
+    }
     
     render_plotly_radar(
       df_long = df,
       selected_player = nm2,
       title = paste0("Catapult — ", nm2, " (position-group percentiles)")
     )
+  })
+  
+  
+  
+  # ---------------------------
+  # Catapult tab helpers
+  # ---------------------------
+  
+
+  
+  cat_metric_key_for <- function(df_cat, patterns) {
+    # df_cat must have: metric_key, metric_name
+    # patterns = character vector of regex patterns (case-insensitive)
+    for (pat in patterns) {
+      hit <- df_cat %>%
+        filter(stringr::str_detect(stringr::str_to_lower(metric_name), stringr::str_to_lower(pat))) %>%
+        count(metric_key, sort = TRUE) %>%
+        slice(1) %>%
+        pull(metric_key)
+      if (length(hit) == 1) return(hit)
+    }
+    NA_character_
+  }
+  
+  catapult_base <- reactive({
+    df <- vald_tests_long_ui %>%
+      filter(source == "Catapult")
+    
+    # date filter
+    if (!is.null(input$cat_dates) && all(!is.na(input$cat_dates))) {
+      df <- df %>% filter(date >= input$cat_dates[1], date <= input$cat_dates[2])
+    }
+    
+    # attach roster position (if pos_col exists)
+    if (!is.null(pos_col) && pos_col %in% names(roster_view)) {
+      roster_pos <- roster_view %>%
+        distinct(player_id, .data[[pos_col]]) %>%
+        rename(cat_position = .data[[pos_col]])
+      
+      df <- df %>%
+        left_join(roster_pos, by = "player_id")
+      
+      # position filter
+      if (!is.null(input$cat_pos_filter) &&
+          length(input$cat_pos_filter) > 0 &&
+          !("All" %in% input$cat_pos_filter)) {
+        df <- df %>% filter(cat_position %in% input$cat_pos_filter)
+      }
+    }
+    
+    df
+  })
+  
+  catapult_latest_per_player <- function(df, metric_key, title, agg_method = "latest") {
+    if (is.na(metric_key)) {
+      return(plotly::plot_ly() %>% plotly::layout(title = list(text = paste0(title, "<br><sup>Metric not found in data</sup>"))))
+    }
+    
+    d_base <- df %>%
+      filter(metric_key == !!metric_key) %>%
+      mutate(value = suppressWarnings(as.numeric(metric_value))) %>%
+      filter(!is.na(value))
+    
+    if (nrow(d_base) == 0) {
+      return(plotly::plot_ly() %>% plotly::layout(title = list(text = paste0(title, "<br><sup>No data in selected range</sup>"))))
+    }
+    
+    # Apply aggregation method
+    if (agg_method == "sum") {
+      d <- d_base %>%
+        group_by(player_id, player_name) %>%
+        summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
+        filter(value > 0)
+      title_final <- paste0("Total ", title)
+    } else if (agg_method == "max") {
+      d <- d_base %>%
+        group_by(player_id, player_name) %>%
+        summarise(value = max(value, na.rm = TRUE), .groups = "drop") %>%
+        filter(is.finite(value))
+      title_final <- title  # no prefix for max
+    } else if (agg_method == "avg") {
+      d <- d_base %>%
+        group_by(player_id, player_name) %>%
+        summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
+        filter(is.finite(value))
+      title_final <- paste0("Avg ", title)
+    } else {
+      # latest (default)
+      d <- d_base %>%
+        group_by(player_id, player_name) %>%
+        slice_max(date, n = 1, with_ties = FALSE) %>%
+        ungroup()
+      title_final <- title
+    }
+    
+    if (nrow(d) == 0) {
+      return(plotly::plot_ly() %>% plotly::layout(title = list(text = paste0(title_final, "<br><sup>No data in selected range</sup>"))))
+    }
+    
+    # auto-limit if huge roster (keeps chart readable)
+    d <- d %>% arrange(desc(value))
+    if (nrow(d) > 30) d <- d %>% slice_head(n = 30)
+    
+    plotly::plot_ly(
+      data = d,
+      x = ~reorder(player_name, value),
+      y = ~value,
+      type = "bar",
+      text = ~player_name,
+      hovertemplate = "%{text}<br>%{y}<extra></extra>"
+    ) %>%
+      plotly::layout(
+        title = list(text = title_final),
+        xaxis = list(title = "", tickangle = -45),
+        yaxis = list(title = ""),
+        margin = list(l = 60, r = 20, t = 60, b = 100)
+      )
+  }
+  
+  # Resolve metric_keys once (based on current Catapult naming)
+  catapult_keys <- reactive({
+    df_cat <- vald_tests_long_ui %>%
+      filter(source == "Catapult") %>%
+      distinct(metric_key, metric_name)
+    
+    list(
+      player_load     = cat_metric_key_for(df_cat, c("^total player load$", "player load$")),
+      player_load_min = cat_metric_key_for(df_cat, c("player load.*min", "player load/min", "player load per min")),
+      hsd_12          = cat_metric_key_for(df_cat, c("high speed.*12", "high speed.*12 mph", "high speed dist")),
+      sprint_16       = cat_metric_key_for(df_cat, c("sprint.*16", "sprint.*16 mph", "sprint dist")),
+      max_v           = cat_metric_key_for(df_cat, c("^max vel$", "max v", "max velocity")),
+      explosive       = cat_metric_key_for(df_cat, c("explosive efforts", "explosive effort"))
+    )
+  })
+  
+  # Update the output calls with aggregation methods
+  output$cat_plot_player_load <- renderPlotly({
+    keys <- catapult_keys()
+    catapult_latest_per_player(catapult_base(), keys$player_load, "Player Load", "sum")
+  })
+  
+  output$cat_plot_player_load_min <- renderPlotly({
+    keys <- catapult_keys()
+    catapult_latest_per_player(catapult_base(), keys$player_load_min, "Player Load / Min", "avg")
+  })
+  
+  output$cat_plot_hsd_12 <- renderPlotly({
+    keys <- catapult_keys()
+    catapult_latest_per_player(catapult_base(), keys$hsd_12, "High Speed Distance (12 mph)", "sum")
+  })
+  
+  output$cat_plot_sprint_16 <- renderPlotly({
+    keys <- catapult_keys()
+    catapult_latest_per_player(catapult_base(), keys$sprint_16, "Sprint Distance (16 mph)", "sum")
+  })
+  
+  output$cat_plot_max_v <- renderPlotly({
+    keys <- catapult_keys()
+    catapult_latest_per_player(catapult_base(), keys$max_v, "Max Velocity", "max")
+  })
+  
+  output$cat_plot_explosive <- renderPlotly({
+    keys <- catapult_keys()
+    catapult_latest_per_player(catapult_base(), keys$explosive, "Explosive Efforts", "sum")
   })
   
   
