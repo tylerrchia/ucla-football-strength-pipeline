@@ -1,24 +1,31 @@
 # metrics.R
 # ---------
-# In-memory build for VALD (NordBord + ForceDecks) used by Shiny via source("metrics.R")
+# In-memory build for VALD (NordBord + ForceDecks) + Catapult used by Shiny via source("metrics.R")
+#
+# INTEGRATED VERSION:
+#   - Handles new data format (camelCase columns from API via RDS files)
+#   - Includes position-based percentiles
+#   - Includes Athleticism Score composite
+#   - Includes Catapult data support
+#   - Includes measurements (height, weight, etc.)
+#   - Uses RDS files from new data folder
 #
 # Outputs created:
 #   - vald_tests_long        : canonical long table (all tests, all dates)
 #   - vald_tests_long_ui     : long table + metric_key (for player pages)
+#   - catapult_tests_long    : catapult data in long format
+#   - catapult_tests_long_ui : catapult data with metric_key
 #   - players               : unique players
 #   - as_of_date            : snapshot cutoff
 #   - vald_latest_wide      : latest-per-player wide snapshot (ALL metrics)
-#   - roster_view           : wide snapshot (ONLY >=80% filled metrics)
+#   - roster_view           : wide snapshot (ONLY >=25% filled metrics)
 #   - fill_summary          : metric_key -> fill_frac
 #   - keep_roster_metrics   : metric keys kept in roster_view
 #   - roster_percentiles_wide : roster_view + per-metric percentiles as extra columns (__pctl)
 #   - roster_percentiles_long : long percentile table (best for joins / UI)
-#
-# No scoring/composites.
 
 suppressPackageStartupMessages({
   library(readr)
-  library(readxl)   # NEW
   library(dplyr)
   library(tidyr)
   library(stringr)
@@ -28,15 +35,13 @@ suppressPackageStartupMessages({
 # ---------------------------
 # Config
 # ---------------------------
-NORD_PATH  <- "nordbord_data2.csv"
-FORCE_PATH <- "forcedecks_data1.csv"
-POS_PATH <- "positions.csv"
-CAT_PATH <- "catapult.csv"
-MEAS_PATH <- "MEASUREMENTS.xlsx"
+NORD_PATH  <- "~/Desktop/football 26/new data/nordbord.rds"
+FORCE_PATH <- "~/Desktop/football 26/new data/forcedecks.rds"
+POS_PATH   <- "~/Desktop/football 26/new data/profiles_with_groups.rds"
+CAT_PATH   <- "~/Desktop/football 26/new data/catapult.rds"
+MEAS_PATH  <- "~/Desktop/football 26/new data/measurements.rds"
 
-
-
-as_of_date <- as.Date("2026-02-04")
+as_of_date <- Sys.Date()  # Use current date
 
 filled_threshold <- 0.25
 
@@ -48,7 +53,7 @@ standardize_name <- function(x) {
   x %>%
     str_squish() %>%
     str_to_upper() %>%
-    str_replace_all("[\\.,'’]", "") %>%
+    str_replace_all("[\\.,'']", "") %>%
     str_squish()
 }
 
@@ -67,14 +72,18 @@ clean_metric_name <- function(col) {
 }
 
 parse_metric_numeric <- function(x) {
-  x %>%
-    str_squish() %>%
-    dplyr::na_if("") %>%
-    dplyr::na_if("—") %>%
-    dplyr::na_if("-") %>%
-    str_replace_all("%", "") %>%
-    str_replace_all("[^0-9\\.\\-]", "") %>%
-    suppressWarnings(as.numeric(.))
+  suppressWarnings({
+    x %>%
+      as.character() %>%
+      str_squish() %>%
+      dplyr::na_if("") %>%
+      dplyr::na_if("—") %>%
+      dplyr::na_if("-") %>%
+      dplyr::na_if("NA") %>%
+      str_replace_all("%", "") %>%
+      str_replace_all("[^0-9\\.\\-]", "") %>%
+      as.numeric()
+  })
 }
 
 pct_rank_100 <- function(x) {
@@ -93,18 +102,52 @@ is_flip_metric <- function(metric_key) {
 
 `%||%` <- function(a, b) if (!is.null(a) && length(a) > 0 && !all(is.na(a))) a else b
 
+# ---------------------------
+# Position ingestion
+# ---------------------------
 
 ingest_positions <- function(path) {
-  pos_raw <- read_csv(path, show_col_types = FALSE) %>%
+  # Check if file exists
+  if (!file.exists(path)) {
+    message("Warning: Positions file not found at ", path)
+    return(tibble::tibble(
+      player_id = character(),
+      pos_player_name = character(),
+      pos_group = character(),
+      pos_position = character(),
+      pos_year = integer()
+    ))
+  }
+  
+  # Check file extension and read accordingly
+  if (grepl("\\.rds$", path, ignore.case = TRUE)) {
+    pos_raw <- readRDS(path)
+  } else {
+    pos_raw <- read_csv(path, show_col_types = FALSE)
+  }
+  
+  # Standardize column names - handle both old and new formats
+  pos_raw <- pos_raw %>%
+    rename_with(~ case_when(
+      . == "groupName" ~ "Group",
+      . == "positionName" ~ "Position",
+      tolower(.) == "group" ~ "Group",
+      tolower(.) == "position" ~ "Position",
+      tolower(.) == "firstname" ~ "firstName",
+      tolower(.) == "lastname" ~ "lastName",
+      TRUE ~ .
+    ))
+  
+  pos_raw <- pos_raw %>%
     mutate(
-      player_name = str_squish(paste(firstName, lastName)),
+      player_name = str_squish(coalesce(name, paste(firstName, lastName))),
       player_id   = standardize_name(player_name),
       Group       = na_if(str_squish(as.character(Group)), ""),
       Position    = na_if(str_squish(as.character(Position)), ""),
       year        = suppressWarnings(as.integer(year))
     )
   
-  # If duplicates exist for the same player_id, keep the “best” row
+  # If duplicates exist for the same player_id, keep the "best" row
   # (prefer non-NA Position/Group/year)
   pos_clean <- pos_raw %>%
     group_by(player_id) %>%
@@ -119,9 +162,37 @@ ingest_positions <- function(path) {
   pos_clean
 }
 
+# ---------------------------
+# Measurements ingestion
+# ---------------------------
 
 ingest_measurements <- function(path) {
-  meas_raw <- readxl::read_excel(path) %>%
+  # Check if file exists
+  if (!file.exists(path)) {
+    message("Warning: Measurements file not found at ", path)
+    return(tibble::tibble(
+      player_id = character(),
+      meas_player_name = character(),
+      pos_group = character(),
+      pos_position = character(),
+      class_year = character(),
+      class_year_base = character(),
+      is_redshirt = character(),
+      height_display = character(),
+      weight_display = character(),
+      wingspan_display = character(),
+      hand_display = character(),
+      arm_display = character()
+    ))
+  }
+  
+  # Read RDS file
+  meas_raw <- readRDS(path) %>%
+    rename_with(~ case_when(
+      . == "firstName" ~ "firstName",
+      . == "lastName" ~ "lastName",
+      TRUE ~ .
+    )) %>%
     mutate(
       player_name = str_squish(paste(firstName, lastName)),
       player_id   = standardize_name(player_name),
@@ -174,33 +245,66 @@ ingest_measurements <- function(path) {
   meas_clean
 }
 
-
 # ---------------------------
-# Ingestors
+# Ingestors for NEW DATA FORMAT
 # ---------------------------
 
 ingest_nordboard <- function(path) {
-  raw <- read_csv(path, show_col_types = FALSE)
+  # Check if file exists
+  if (!file.exists(path)) {
+    message("Warning: NordBord file not found at ", path)
+    return(tibble::tibble())
+  }
+  
+  # Check file extension and read accordingly
+  if (grepl("\\.rds$", path, ignore.case = TRUE)) {
+    raw <- readRDS(path)
+  } else {
+    raw <- read_csv(path, show_col_types = FALSE)
+  }
+  
+  # New column names: profileId, testId, testType, firstName, lastName, 
+  # groupName, positionName, year, date, leftAvgForce, leftImpulse, leftMaxForce, 
+  # rightAvgForce, rightImpulse, rightMaxForce, asymmetry, name
   
   raw <- raw %>%
-    rename(date_chr = `Date UTC`, time_chr = `Time UTC`, test_type = Test) %>%
     mutate(
-      date     = mdy(date_chr),
-      datetime = suppressWarnings(mdy_hms(paste(date_chr, time_chr))),
-      datetime = if_else(is.na(datetime), as.POSIXct(date), datetime),
-      player_name = str_squish(Name),
-      player_id   = standardize_name(player_name),
-      source      = "NordBord"
+      # Parse date - try multiple formats
+      date = if(inherits(date, "Date")) {
+        date
+      } else {
+        # Try different date parsing functions
+        parsed <- suppressWarnings(ymd(date))
+        if(all(is.na(parsed))) parsed <- suppressWarnings(mdy(date))
+        if(all(is.na(parsed))) parsed <- suppressWarnings(dmy(date))
+        parsed
+      },
+      datetime = as.POSIXct(date),
+      player_name = str_squish(coalesce(name, paste(firstName, lastName))),
+      player_id = standardize_name(player_name),
+      source = "NordBord",
+      test_type = coalesce(testType, "Nordic Hamstring")
     )
   
   id_cols <- c("player_id", "player_name", "date", "datetime", "source", "test_type")
   
-  non_metric <- c("Name", "ExternalId", "Device", "date_chr", "time_chr",
-                  "date", "datetime", "source", "test_type")
-  metric_cols <- setdiff(names(raw), c(non_metric, id_cols))
+  # Metrics to extract: all numeric columns that are actual metrics
+  metric_cols <- c(
+    "leftAvgForce", "leftImpulse", "leftMaxForce",
+    "rightAvgForce", "rightImpulse", "rightMaxForce",
+    "asymmetry"
+  )
+  
+  # Filter to only columns that exist
+  metric_cols <- intersect(metric_cols, names(raw))
+  
+  if (length(metric_cols) == 0) {
+    message("Warning: No metric columns found in NordBord data")
+    return(tibble::tibble())
+  }
   
   raw %>%
-    select(any_of(id_cols), any_of(metric_cols)) %>%
+    select(any_of(c(id_cols, metric_cols))) %>%
     pivot_longer(
       cols = all_of(metric_cols),
       names_to = "metric_raw",
@@ -208,8 +312,23 @@ ingest_nordboard <- function(path) {
       values_transform = list(metric_value_raw = as.character)
     ) %>%
     mutate(
-      units        = parse_units(metric_raw),
-      metric_name  = clean_metric_name(metric_raw),
+      # Convert camelCase to readable format with units
+      metric_name = case_when(
+        metric_raw == "leftAvgForce" ~ "L Avg Force",
+        metric_raw == "leftImpulse" ~ "L Max Impulse",
+        metric_raw == "leftMaxForce" ~ "L Max Force",
+        metric_raw == "rightAvgForce" ~ "R Avg Force",
+        metric_raw == "rightImpulse" ~ "R Max Impulse",
+        metric_raw == "rightMaxForce" ~ "R Max Force",
+        metric_raw == "asymmetry" ~ "Max Imbalance",
+        TRUE ~ metric_raw
+      ),
+      units = case_when(
+        str_detect(metric_raw, "Force") ~ "N",
+        str_detect(metric_raw, "Impulse") ~ "Ns",
+        metric_raw == "asymmetry" ~ "%",
+        TRUE ~ NA_character_
+      ),
       metric_value = parse_metric_numeric(metric_value_raw)
     ) %>%
     filter(!is.na(metric_value)) %>%
@@ -217,38 +336,60 @@ ingest_nordboard <- function(path) {
 }
 
 ingest_forcedecks <- function(path) {
-  raw <- read_csv(path, show_col_types = FALSE)
-  names(raw) <- str_squish(names(raw))
-  
-  # Column name after str_squish()
-  
-  jh_col <- "Jump Height (Imp-Mom) in Inches [in]"
-  
-  if (jh_col %in% names(raw)) {
-    raw <- raw %>%
-      mutate(jh_in = parse_metric_numeric(.data[[jh_col]])) %>%
-      filter(jh_in <= 5 | jh_in >= 30) %>%
-      select(-jh_in)
+  # Check if file exists
+  if (!file.exists(path)) {
+    message("Warning: ForceDecks file not found at ", path)
+    return(tibble::tibble())
   }
   
+  # Check file extension and read accordingly
+  if (grepl("\\.rds$", path, ignore.case = TRUE)) {
+    raw <- readRDS(path)
+  } else {
+    raw <- read_csv(path, show_col_types = FALSE)
+  }
+  
+  # New column names: profileId, testId, firstName, lastName, groupName, positionName,
+  # testType, date, Athlete.Standing.Weight, Concentric.Impulse, etc.
+  
   raw <- raw %>%
-    rename(test_type = `Test Type`) %>%
     mutate(
-      date     = mdy(as.character(Date)),
-      datetime = as.POSIXct(date),   # ← SAFE fallback
-      player_name = str_squish(Name),
-      player_id   = standardize_name(player_name),
-      source      = "ForceDecks"
+      # Parse date - try multiple formats
+      date = if(inherits(date, "Date")) {
+        date
+      } else {
+        # Try different date parsing functions
+        parsed <- suppressWarnings(ymd(date))
+        if(all(is.na(parsed))) parsed <- suppressWarnings(mdy(date))
+        if(all(is.na(parsed))) parsed <- suppressWarnings(dmy(date))
+        parsed
+      },
+      datetime = as.POSIXct(date),
+      player_name = str_squish(coalesce(name, paste(firstName, lastName))),
+      player_id = standardize_name(player_name),
+      source = "ForceDecks",
+      test_type = coalesce(testType, "CMJ")
     )
   
   id_cols <- c("player_id", "player_name", "date", "datetime", "source", "test_type")
   
-  non_metric <- c("Name", "ExternalId", "Date", "Time", "Tags",
-                  "date", "datetime", "source", "test_type")
-  metric_cols <- setdiff(names(raw), c(non_metric, id_cols))
+  # Identify all potential metric columns (exclude ID/metadata columns)
+  non_metric <- c(
+    "profileId", "testId", "firstName", "lastName", "name",
+    "groupName", "positionName", "testType", "date", "year",
+    "player_id", "player_name", "datetime", "source", "test_type"
+  )
   
-  raw %>%
-    select(any_of(id_cols), any_of(metric_cols)) %>%
+  metric_cols <- setdiff(names(raw), non_metric)
+  metric_cols <- metric_cols[sapply(raw[metric_cols], function(x) is.numeric(x) || is.character(x))]
+  
+  if (length(metric_cols) == 0) {
+    message("Warning: No metric columns found in ForceDecks data")
+    return(tibble::tibble())
+  }
+  
+  long <- raw %>%
+    select(any_of(c(id_cols, metric_cols))) %>%
     pivot_longer(
       cols = all_of(metric_cols),
       names_to = "metric_raw",
@@ -256,40 +397,75 @@ ingest_forcedecks <- function(path) {
       values_transform = list(metric_value_raw = as.character)
     ) %>%
     mutate(
-      units        = parse_units(metric_raw),
-      metric_name  = clean_metric_name(metric_raw),
+      # Clean up metric names - convert dot notation to spaces
+      metric_name = metric_raw %>%
+        str_replace_all("\\.", " ") %>%
+        str_squish(),
+      # Extract units if present in the original column name
+      units = parse_units(metric_raw),
       metric_value = parse_metric_numeric(metric_value_raw)
     ) %>%
     filter(!is.na(metric_value)) %>%
     select(-metric_value_raw)
+  
+  long
 }
 
+# ---------------------------
+# Catapult ingestion
+# ---------------------------
 
 ingest_catapult <- function(path) {
-  raw <- read_csv(path, show_col_types = FALSE)
-  names(raw) <- str_squish(names(raw))
+  # Check if file exists
+  if (!file.exists(path)) {
+    message("Warning: Catapult file not found at ", path)
+    return(tibble::tibble())
+  }
   
+  # Read RDS file
+  raw <- readRDS(path)
+  
+  # Standardize column names
+  raw <- raw %>%
+    rename_with(~ str_squish(.))
+  
+  # Parse dates - the catapult data already has a 'date' column
   raw <- raw %>%
     mutate(
+      # Parse date - try multiple formats
+      date = if(inherits(date, "Date")) {
+        date
+      } else {
+        # Try different date parsing functions
+        parsed <- suppressWarnings(ymd(date))
+        if(all(is.na(parsed))) parsed <- suppressWarnings(mdy(date))
+        if(all(is.na(parsed))) parsed <- suppressWarnings(dmy(date))
+        parsed
+      },
+      datetime = as.POSIXct(date),
       player_name = str_squish(athlete_name),
-      player_id   = standardize_name(player_name),
-      date        = mdy(as.character(date)),    # catapult.csv is m/d/y in your file
-      datetime    = as.POSIXct(date),
-      source      = "Catapult",
-      test_type   = "Catapult"
+      player_id = standardize_name(player_name),
+      source = "Catapult",
+      test_type = "Catapult"  # Keep simple like the old version
     )
   
   id_cols <- c("player_id", "player_name", "date", "datetime", "source", "test_type")
   
+  # Identify metric columns (exclude metadata)
   non_metric <- c(
     "athlete_name", "activity_name", "period_id", "period_name",
-    "player_name", "player_id", "date", "datetime", "source", "test_type"
+    "date", "datetime", "player_name", "player_id", "source", "test_type"
   )
   
   metric_cols <- setdiff(names(raw), non_metric)
   
-  raw %>%
-    select(any_of(id_cols), any_of(metric_cols)) %>%
+  if (length(metric_cols) == 0) {
+    message("Warning: No metric columns found in Catapult data")
+    return(tibble::tibble())
+  }
+  
+  long <- raw %>%
+    select(any_of(c(id_cols, metric_cols))) %>%
     pivot_longer(
       cols = all_of(metric_cols),
       names_to = "metric_raw",
@@ -297,9 +473,9 @@ ingest_catapult <- function(path) {
       values_transform = list(metric_value_raw = as.character)
     ) %>%
     mutate(
-      units        = NA_character_,
-      # nicer display names in Shiny
-      metric_name  = metric_raw %>%
+      units = NA_character_,
+      # Simple transformation like the old version
+      metric_name = metric_raw %>%
         str_replace_all("_", " ") %>%
         str_squish() %>%
         str_to_title(),
@@ -307,46 +483,74 @@ ingest_catapult <- function(path) {
     ) %>%
     filter(!is.na(metric_value)) %>%
     select(-metric_value_raw)
+  
+  long
 }
 
-
-ingest_vald_bundle <- function(nord_path, force_path, cat_path) {
-  bind_rows(
-    ingest_nordboard(nord_path),
-    ingest_forcedecks(force_path),
-    ingest_catapult(cat_path)
-  ) %>%
-    mutate(metric_value = as.numeric(metric_value))
-}
-
-
 # ---------------------------
-# Build canonical long tables
+# Load all data sources
 # ---------------------------
 
-vald_tests_long <- ingest_vald_bundle(NORD_PATH, FORCE_PATH, CAT_PATH)
+nord <- ingest_nordboard(NORD_PATH)
+force <- ingest_forcedecks(FORCE_PATH)
+catapult <- ingest_catapult(CAT_PATH)
 
+# Combine ALL data sources (NordBord + ForceDecks + Catapult) into vald_tests_long
+# This is what the app expects - Catapult should be part of vald_tests_long_ui
+vald_tests_long <- bind_rows(nord, force, catapult)
+
+# Ensure metric_value is numeric and round
 vald_tests_long <- vald_tests_long %>%
   mutate(
+    metric_value = as.numeric(metric_value),
     metric_value = round(metric_value, 2)
   )
 
+# Create separate catapult reference for compatibility (if needed elsewhere)
+catapult_tests_long <- catapult %>%
+  mutate(
+    metric_value = as.numeric(metric_value),
+    metric_value = round(metric_value, 2)
+  )
+
+# Also create UI version of catapult
+catapult_tests_long_ui <- catapult_tests_long %>%
+  mutate(metric_key = paste(source, test_type, metric_name, sep="|"))
+
+# Get unique players from all sources (now all in vald_tests_long)
 players <- vald_tests_long %>%
   distinct(player_id, player_name) %>%
   arrange(player_name)
 
+# Load positions and measurements
+positions <- ingest_positions(POS_PATH)
 measurements <- ingest_measurements(MEAS_PATH)
 
+# Merge position and measurement data (prefer measurements for pos_group/pos_position)
+player_metadata <- positions %>%
+  full_join(measurements, by = "player_id", suffix = c("_pos", "_meas")) %>%
+  mutate(
+    pos_player_name = coalesce(pos_player_name, meas_player_name),
+    pos_group = coalesce(pos_group_meas, pos_group_pos),
+    pos_position = coalesce(pos_position_meas, pos_position_pos)
+  ) %>%
+  select(
+    player_id, pos_player_name, pos_group, pos_position, pos_year,
+    class_year, class_year_base, is_redshirt,
+    height_display, weight_display, wingspan_display, hand_display, arm_display
+  )
+
+# Join to player directory
 players <- players %>%
-  left_join(measurements, by = "player_id")
+  left_join(player_metadata, by = "player_id")
 
+# Join to long tables (useful for player pages / filtering)
 vald_tests_long <- vald_tests_long %>%
-  left_join(measurements, by = "player_id")
+  left_join(player_metadata, by = "player_id")
 
-
+# Add metric_key column
 vald_tests_long_ui <- vald_tests_long %>%
   mutate(metric_key = paste(source, test_type, metric_name, sep="|"))
-
 
 # ---------------------------
 # Build wide "as-of" snapshot (ALL metrics)
@@ -378,9 +582,8 @@ pos_cols <- c(
 id_cols <- c("player_id", "player_name", pos_cols, "as_of_date")
 metric_cols <- setdiff(names(vald_latest_wide), id_cols)
 
-
 # ---------------------------
-# Keep roster metrics (>=80% filled) — computed WITHIN SOURCE
+# Keep roster metrics (>=25% filled) — computed WITHIN SOURCE
 # ---------------------------
 
 # helper to extract source from metric_key
@@ -395,7 +598,7 @@ fill_summary <- lapply(sources, function(s) {
     distinct(player_id)
   
   metric_cols_s <- metric_cols[startsWith(metric_cols, paste0(s, "|"))]
-  if (length(metric_cols_s) == 0) return(dplyr::tibble())
+  if (length(metric_cols_s) == 0) return(tibble::tibble())
   
   wide_s <- vald_latest_wide %>%
     filter(player_id %in% players_s$player_id) %>%
@@ -411,7 +614,7 @@ fill_summary <- lapply(sources, function(s) {
             x <- .[!is.na(.)]
             if (length(x) == 0) NA_real_ else mean(x == 0)
           },
-          n_unique = ~ {                  # ✅ NEW
+          n_unique = ~ {
             x <- .[!is.na(.)]
             length(unique(x))
           }
@@ -433,15 +636,13 @@ fill_summary <- lapply(sources, function(s) {
 }) %>%
   bind_rows()
 
-
 keep_roster_metrics <- fill_summary %>%
   filter(
     fill_frac >= filled_threshold,
-    n_unique > 1,                    # ✅ drops constant metrics within-source
+    n_unique > 1,                    # drops constant metrics within-source
     is.na(zero_frac) | zero_frac <= 0.90
   ) %>%
   pull(metric_key)
-
 
 roster_view <- vald_latest_wide %>%
   select(all_of(c(id_cols, keep_roster_metrics)))
@@ -455,8 +656,10 @@ roster_view <- roster_view %>%
     )
   )
 
+# ---------------------------
+# Position-based percentiles
+# ---------------------------
 
-# Position based percentiles
 pos_pct_col <- if ("pos_position" %in% names(roster_view)) "pos_position" else NULL
 
 roster_percentiles_pos_long <- NULL
@@ -495,7 +698,6 @@ roster_percentiles_wide <- roster_view %>% select(player_id) %>%
 roster_percentiles_long <- roster_percentiles_pos_long %>%
   transmute(player_id, player_name, metric_key, percentile = pos_percentile)
 
-
 # ---------------------------
 # Athleticism Score (weighted position percentiles)
 # ---------------------------
@@ -508,13 +710,24 @@ find_key_by_source_and_name <- function(source_name, metric_name) {
   if (length(hit) >= 1) hit[1] else NA_character_
 }
 
+# Try multiple variants of Jump Height metric name
 k_jump <- find_key_by_source_and_name("ForceDecks", "Jump Height (Imp-Mom) in Inches")
+if (is.na(k_jump)) {
+  k_jump <- find_key_by_source_and_name("ForceDecks", "Jump Height (Imp-Mom)")
+}
+if (is.na(k_jump)) {
+  k_jump <- find_key_by_source_and_name("ForceDecks", "Jump Height Imp-Mom in Inches")
+}
+if (is.na(k_jump)) {
+  k_jump <- find_key_by_source_and_name("ForceDecks", "Jump Height Imp-Mom")
+}
+
 k_ebi  <- find_key_by_source_and_name("ForceDecks", "Eccentric Braking Impulse")
 k_pp   <- find_key_by_source_and_name("ForceDecks", "Force at Peak Power")
 k_zv   <- find_key_by_source_and_name("ForceDecks", "Force at Zero Velocity")
 k_lmf  <- find_key_by_source_and_name("NordBord",   "L Max Force")
 k_rmf  <- find_key_by_source_and_name("NordBord",   "R Max Force")
-k_imb  <- find_key_by_source_and_name("NordBord",   "Max Imbalance")  # already flipped earlier
+k_imb  <- find_key_by_source_and_name("NordBord",   "Max Imbalance")
 
 keys_needed <- c(k_jump, k_ebi, k_pp, k_zv, k_lmf, k_rmf, k_imb)
 keys_needed <- keys_needed[!is.na(keys_needed)]
@@ -583,9 +796,8 @@ roster_percentiles_long <- roster_percentiles_long %>%
     ath %>% transmute(player_id, player_name, metric_key = athleticism_key, percentile = AthleticismScore)
   )
 
-
 message("Built objects:")
-message("  vald_tests_long:         ", nrow(vald_tests_long), " rows")
+message("  vald_tests_long:         ", nrow(vald_tests_long), " rows (includes NordBord, ForceDecks, Catapult)")
 message("  players:                ", nrow(players), " players")
 message("  vald_latest_wide:       ", nrow(vald_latest_wide), " rows, ", length(metric_cols), " metrics")
 message("  roster metrics kept:    ", length(keep_roster_metrics), " (>= ", filled_threshold*100, "% filled)")
