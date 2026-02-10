@@ -29,6 +29,12 @@ jobs:
             dplyr
             tidyr
             purrr
+            shiny
+            DT
+            stringr
+            ggplot2
+            ggrepel
+            plotly
             SBGSports/catapultr
 
       - name: Run VALD data pull
