@@ -81,6 +81,13 @@ catapult_append <- map_dfr(activities_recent$id, function(act_id) {
   )
 })
 
+catapult_append <- catapult_append %>% 
+  mutate(
+    athlete_name = if_else(athlete_name == "Player A",
+                   "Player A",
+                   athlete_name)
+  )
+
 # -------------------------------------------------------------------------------
 # APPENDING TO DATA FOLDER
 catapult_path <- "data/catapult.csv"
