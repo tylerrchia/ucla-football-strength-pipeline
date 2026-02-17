@@ -21,9 +21,8 @@ valdr::set_credentials(
   client_secret = Sys.getenv("VALD_CLIENT_SECRET"),
   tenant_id     = Sys.getenv("VALD_TENANT_ID"),
   region        = Sys.getenv("VALD_REGION"),
-  use_keyring   = FALSE
+  keyring       = FALSE
 )
-
 
 
 # dynamic function to take only pull from 2 days prior to current date
