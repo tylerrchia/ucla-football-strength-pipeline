@@ -5,12 +5,16 @@ permissions:
 
 on:
   schedule:
-    - cron: "0 19 * * *"   # 11 am pst
+    - cron: "0 19 * * *"   # 11am PST
   workflow_dispatch:
 
 jobs:
   run-vald:
     runs-on: ubuntu-22.04
+
+    env:
+      R_BUILD_VIGNETTES: false
+      R_CHECK_BUILD_VIGNETTES: false
 
     steps:
       - name: Checkout repo
@@ -18,10 +22,20 @@ jobs:
 
       - name: Set up R
         uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.3.2'
 
-      - name: Install R packages
+      - name: Configure R for fast binary installs
+        run: |
+          echo 'options(
+            repos = c(CRAN = "https://packagemanager.posit.co/cran/__linux__/jammy/latest"),
+            Ncpus = parallel::detectCores()
+          )' >> ~/.Rprofile
+
+      - name: Install R packages (cached, binary)
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
+          cache: true
           packages: |
             lubridate
             readr
@@ -60,4 +74,3 @@ jobs:
           git add data/*.csv data/*.rds
           git commit -m "Daily VALD & Catapult data update" || echo "No changes"
           git push
-
