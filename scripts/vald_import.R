@@ -159,8 +159,8 @@ if (is.null(forcedeck_trials) || nrow(forcedeck_trials) == 0) {
 }
 
 # -------------------------------------------------------------------------------
-# dynamic function to take only pull from 2 days prior to current date
-start_date <- format(Sys.time() - days(2), "%Y-%m-%dT00:00:00Z")
+# dynamic function to take only pull from 7 days prior to current date
+start_date <- format(Sys.time() - days(7), "%Y-%m-%dT00:00:00Z")
 set_start_date(start_date)
 
 # pull nordbord tests
