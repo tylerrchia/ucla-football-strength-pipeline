@@ -8,15 +8,6 @@ forcedeck_FINAL <- NULL
 nordbord_FINAL  <- NULL
 
 # get_config()
-valdr::set_config(
-  list(
-    client_id     = Sys.getenv("VALD_CLIENT_ID"),
-    client_secret = Sys.getenv("VALD_CLIENT_SECRET"),
-    tenant_id     = Sys.getenv("VALD_TENANT_ID"),
-    region        = Sys.getenv("VALD_REGION")
-  ),
-  write = FALSE
-)
 
 stopifnot(
   nzchar(Sys.getenv("VALD_CLIENT_ID")),
@@ -24,6 +15,15 @@ stopifnot(
   nzchar(Sys.getenv("VALD_TENANT_ID")),
   nzchar(Sys.getenv("VALD_REGION"))
 )
+
+valdr::set_credentials(
+  client_id     = Sys.getenv("VALD_CLIENT_ID"),
+  client_secret = Sys.getenv("VALD_CLIENT_SECRET"),
+  tenant_id     = Sys.getenv("VALD_TENANT_ID"),
+  region        = Sys.getenv("VALD_REGION"),
+  use_keyring   = FALSE
+)
+
 
 
 # dynamic function to take only pull from 2 days prior to current date
