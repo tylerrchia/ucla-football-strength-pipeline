@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     env:
+      RENV_CONFIG_REPOS_OVERRIDE: https://packagemanager.posit.co/cran/__linux__/jammy/latest
       R_BUILD_VIGNETTES: false
       R_CHECK_BUILD_VIGNETTES: false
 
@@ -25,31 +26,8 @@ jobs:
         with:
           r-version: '4.4.0'
 
-      - name: Configure R for fast binary installs
-        run: |
-          echo 'options(
-            repos = c(CRAN = "https://packagemanager.posit.co/cran/__linux__/jammy/latest"),
-            Ncpus = parallel::detectCores()
-          )' >> ~/.Rprofile
-
-      - name: Install R packages (cached, binary)
-        uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          cache: true
-          packages: |
-            lubridate
-            readr
-            valdr
-            dplyr
-            tidyr
-            purrr
-            shiny
-            DT
-            stringr
-            ggplot2
-            ggrepel
-            plotly
-            SBGSports/catapultr
+      - name: Restore renv environment
+        uses: r-lib/actions/setup-renv@v2
 
       - name: Run VALD data pull
         env:
