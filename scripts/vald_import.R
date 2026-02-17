@@ -9,6 +9,8 @@ nordbord_FINAL  <- NULL
 
 # get_config()
 
+library(valdr)
+
 stopifnot(
   nzchar(Sys.getenv("VALD_CLIENT_ID")),
   nzchar(Sys.getenv("VALD_CLIENT_SECRET")),
@@ -16,13 +18,15 @@ stopifnot(
   nzchar(Sys.getenv("VALD_REGION"))
 )
 
-valdr::set_credentials(
+options(keyring_backend = "env")
+
+set_credentials(
   client_id     = Sys.getenv("VALD_CLIENT_ID"),
   client_secret = Sys.getenv("VALD_CLIENT_SECRET"),
   tenant_id     = Sys.getenv("VALD_TENANT_ID"),
-  region        = Sys.getenv("VALD_REGION"),
-  keyring       = FALSE
+  region        = Sys.getenv("VALD_REGION")
 )
+
 
 
 # dynamic function to take only pull from 2 days prior to current date
