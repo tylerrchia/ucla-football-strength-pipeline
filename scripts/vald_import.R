@@ -8,11 +8,18 @@ forcedeck_FINAL <- NULL
 nordbord_FINAL  <- NULL
 
 # get_config()
-set_credentials(
-  client_id     = Sys.getenv("VALD_CLIENT_ID"),
-  client_secret = Sys.getenv("VALD_CLIENT_SECRET"),
-  tenant_id     = Sys.getenv("VALD_TENANT_ID"),
-  region        = Sys.getenv("VALD_REGION")
+Sys.setenv(
+  VALD_CLIENT_ID     = Sys.getenv("VALD_CLIENT_ID"),
+  VALD_CLIENT_SECRET = Sys.getenv("VALD_CLIENT_SECRET"),
+  VALD_TENANT_ID     = Sys.getenv("VALD_TENANT_ID"),
+  VALD_REGION        = Sys.getenv("VALD_REGION")
+)
+
+stopifnot(
+  nzchar(Sys.getenv("VALD_CLIENT_ID")),
+  nzchar(Sys.getenv("VALD_CLIENT_SECRET")),
+  nzchar(Sys.getenv("VALD_TENANT_ID")),
+  nzchar(Sys.getenv("VALD_REGION"))
 )
 
 
