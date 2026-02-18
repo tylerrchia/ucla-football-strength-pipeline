@@ -1,22 +1,39 @@
 library(readr)
 
-if (file.exists("data/forcedecks.csv")) {
+# -------------------------------------------------------------------------------
+# Data output directory (controlled by GitHub Actions)
+output_dir <- Sys.getenv("DATA_OUTPUT_DIR", unset = "data")
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+# -------------------------------------------------------------------------------
+forcedecks_csv <- file.path(output_dir, "forcedecks.csv")
+forcedecks_rds <- file.path(output_dir, "forcedecks.rds")
+
+if (file.exists(forcedecks_csv)) {
   saveRDS(
-    read_csv("data/forcedecks.csv", show_col_types = FALSE),
-    "data/forcedecks.rds"
+    read_csv(forcedecks_csv, show_col_types = FALSE),
+    forcedecks_rds
   )
 }
 
-if (file.exists("data/nordbord.csv")) {
+# -------------------------------------------------------------------------------
+nordbord_csv <- file.path(output_dir, "nordbord.csv")
+nordbord_rds <- file.path(output_dir, "nordbord.rds")
+
+if (file.exists(nordbord_csv)) {
   saveRDS(
-    read_csv("data/nordbord.csv", show_col_types = FALSE),
-    "data/nordbord.rds"
+    read_csv(nordbord_csv, show_col_types = FALSE),
+    nordbord_rds
   )
 }
 
-if (file.exists("data/catapult.csv")) {
+# -------------------------------------------------------------------------------
+catapult_csv <- file.path(output_dir, "catapult.csv")
+catapult_rds <- file.path(output_dir, "catapult.rds")
+
+if (file.exists(catapult_csv)) {
   saveRDS(
-    read_csv("data/catapult.csv", show_col_types = FALSE),
-    "data/catapult.rds"
+    read_csv(catapult_csv, show_col_types = FALSE),
+    catapult_rds
   )
 }
