@@ -5,6 +5,7 @@ This repository contains a GitHub Actions workflow that:
 - Pulls daily data from VALD and Catapult APIs
 - Saves raw CSVs and RDS files
 - Commits updates automatically
+- Data is stored in a separate private repository
 
 ### Environment Reproducibility
 - R version is pinned via GitHub Actions
