@@ -90,7 +90,10 @@ catapult_append <- catapult_append %>%
 
 # -------------------------------------------------------------------------------
 # APPENDING TO DATA FOLDER
-catapult_path <- "data/catapult.csv"
+output_dir <- Sys.getenv("DATA_OUTPUT_DIR", unset = "data")
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+catapult_path <- file.path(output_dir, "catapult.csv")
 
 if (file.exists(catapult_path)) {
   catapult_existing <- read_csv(catapult_path, show_col_types = FALSE)
