@@ -109,7 +109,7 @@ if (file.exists(catapult_path)) {
       .keep_all = TRUE
     )
 } else {
-  catapult_final <- catapult_initial
+  catapult_final <- catapult_append
 }
 
 write_csv(catapult_final, catapult_path)
