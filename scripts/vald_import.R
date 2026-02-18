@@ -4,6 +4,11 @@ library("lubridate")
 library("readr")
 library("dplyr")
 
+# -------------------------------------------------------------------------------
+# Data output directory (controlled by GitHub Actions)
+output_dir <- Sys.getenv("DATA_OUTPUT_DIR", unset = "data")
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
 forcedeck_FINAL <- NULL
 nordbord_FINAL  <- NULL
 
@@ -54,7 +59,9 @@ set_start_date(start_date)
 #     .groups = "drop"
 #   )
 
-profiles_with_groups <- read_rds("data/profiles_with_groups.rds")
+profiles_with_groups <- read_rds(
+  file.path(output_dir, "profiles_with_groups.rds")
+)
 # -------------------------------------------------------------------------------
 # pull forcedeck tests
 forcedecks <- get_forcedecks_tests_only()
@@ -221,9 +228,18 @@ if (is.null(nordbord_tests) || nrow(nordbord_tests) == 0) {
 # forceframe_tests <- forceframe_raw$tests
 # -------------------------------------------------------------------------------
 
-
 # APPENDING TO DATA FOLDER
-forcedeck_path <- "data/forcedecks.csv"
+
+if (!is.null(forcedeck_FINAL) && nrow(forcedeck_FINAL) > 0) {
+  write_csv(forcedeck_FINAL, forcedeck_path)
+}
+
+if (!is.null(nordbord_FINAL) && nrow(nordbord_FINAL) > 0) {
+  write_csv(nordbord_FINAL, nordbord_path)
+}
+
+
+forcedeck_path <- file.path(output_dir, "forcedecks.csv")
 
 if (file.exists(forcedeck_path)) {
   forcedeck_existing <- read_csv(forcedeck_path, show_col_types = FALSE)
@@ -237,7 +253,7 @@ if (file.exists(forcedeck_path)) {
 
 write_csv(forcedeck_FINAL, forcedeck_path)
 
-nordbord_path <- "data/nordbord.csv"
+nordbord_path <- file.path(output_dir, "nordbord.csv")
 
 if (file.exists(nordbord_path)) {
   nordbord_existing <- read_csv(nordbord_path, show_col_types = FALSE)
