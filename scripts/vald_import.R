@@ -230,15 +230,6 @@ if (is.null(nordbord_tests) || nrow(nordbord_tests) == 0) {
 
 # APPENDING TO DATA FOLDER
 
-if (!is.null(forcedeck_FINAL) && nrow(forcedeck_FINAL) > 0) {
-  write_csv(forcedeck_FINAL, forcedeck_path)
-}
-
-if (!is.null(nordbord_FINAL) && nrow(nordbord_FINAL) > 0) {
-  write_csv(nordbord_FINAL, nordbord_path)
-}
-
-
 forcedeck_path <- file.path(output_dir, "forcedecks.csv")
 
 if (file.exists(forcedeck_path)) {
