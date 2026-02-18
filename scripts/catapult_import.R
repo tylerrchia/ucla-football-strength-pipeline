@@ -88,6 +88,10 @@ catapult_append <- catapult_append %>%
                    athlete_name)
   )
 
+# filter only distances over 10 to remove outliers
+catapult_append <- catapult_append %>%
+  filter(total_distance >= 10)
+
 # -------------------------------------------------------------------------------
 # APPENDING TO DATA FOLDER
 output_dir <- Sys.getenv("DATA_OUTPUT_DIR", unset = "data")
