@@ -25,3 +25,4 @@ The workflow requires the following GitHub secrets:
 - VALD_TENANT_ID
 - VALD_REGION
 - CATAPULT_API_TOKEN
+- DATA_REPO_PAT
