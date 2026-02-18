@@ -35,7 +35,7 @@ jobs:
       - name: Checkout private data repo
         uses: actions/checkout@v4
         with:
-          repository: UCLA-Football-Strength-App-DATA
+          repository: tylerrchia/UCLA-Football-Strength-App-DATA
           token: ${{ secrets.DATA_REPO_PAT }}
           path: data-repo
 
