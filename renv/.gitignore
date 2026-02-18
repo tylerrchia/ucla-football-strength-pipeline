@@ -5,3 +5,7 @@ lock/
 python/
 sandbox/
 staging/
+# Generated data (never commit)
+data/
+*.csv
+*.rds
