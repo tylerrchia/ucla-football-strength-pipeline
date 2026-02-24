@@ -220,6 +220,14 @@ if (is.null(nordbord_tests) || nrow(nordbord_tests) == 0) {
     mutate(
       avg_max_force = (leftMaxForce + rightMaxForce) / 2
     ) %>% 
+    # safeguard for cheated tests
+    mutate(
+      avg_max_force = if_else(
+        avg_max_force > 900,
+        (leftAvgForce + rightAvgForce) / 2,
+        avg_max_force
+      )
+    )
     # combine name into one column
     mutate (
       name = paste(firstName, lastName)
