@@ -215,6 +215,10 @@ if (is.null(nordbord_tests) || nrow(nordbord_tests) == 0) {
     mutate(
       asymmetry = abs(100 * (leftMaxForce - rightMaxForce) /
                         ((leftMaxForce + rightMaxForce) / 2))
+    ) %>%
+    # calculate avg max force
+    mutate(
+      avg_max_force = (leftMaxForce + rightMaxForce) / 2
     ) %>% 
     # combine name into one column
     mutate (
