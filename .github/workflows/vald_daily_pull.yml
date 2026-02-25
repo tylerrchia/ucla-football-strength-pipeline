@@ -54,7 +54,7 @@ jobs:
 
       - name: Pull manual Google Sheet data
         env:
-          GSHEET_CSV_URL: ${{ secrets.GOOGLE_SHEETS_CSV }}
+          GOOGLE_SHEETS_CSV: ${{ secrets.GOOGLE_SHEETS_CSV }}
         run: Rscript scripts/manual_pull.R
 
       - name: Convert CSVs to RDS
