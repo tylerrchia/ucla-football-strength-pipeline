@@ -26,3 +26,4 @@ The workflow requires the following GitHub secrets:
 - VALD_REGION
 - CATAPULT_API_TOKEN
 - DATA_REPO_PAT
+- GOOGLE_SHEETS_CSV
