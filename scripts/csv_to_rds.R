@@ -37,3 +37,14 @@ if (file.exists(catapult_csv)) {
     catapult_rds
   )
 }
+
+# -------------------------------------------------------------------------------
+manual_csv <- file.path(output_dir, "manual_overrides.csv")
+manual_rds <- file.path(output_dir, "manual_overrides.rds")
+
+if (file.exists(manual_csv)) {
+  saveRDS(
+    read_csv(manual_csv, show_col_types = FALSE),
+    manual_rds
+  )
+}
