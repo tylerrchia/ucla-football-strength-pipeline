@@ -14,6 +14,6 @@ dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # -------------------------------------------------------------------------------
 write_csv(
-  manual_df,
+  df,
   file.path(output_dir, "manual_overrides.csv")
 )
