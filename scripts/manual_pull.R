@@ -6,7 +6,8 @@ if (url == "") {
   stop("GOOGLE_SHEETS_CSV is not set")
 }
 
-df <- read_csv(url)
+df <- read_csv(url) %>%
+  filter(!is.na(Value))
 
 # -------------------------------------------------------------------------------
 output_dir <- Sys.getenv("DATA_OUTPUT_DIR", unset = "data")
