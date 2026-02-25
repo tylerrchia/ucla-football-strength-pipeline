@@ -7,3 +7,13 @@ if (url == "") {
 }
 
 df <- read_csv(url)
+
+# -------------------------------------------------------------------------------
+output_dir <- Sys.getenv("DATA_OUTPUT_DIR", unset = "data")
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+# -------------------------------------------------------------------------------
+write_csv(
+  manual_df,
+  file.path(output_dir, "manual_overrides.csv")
+)
