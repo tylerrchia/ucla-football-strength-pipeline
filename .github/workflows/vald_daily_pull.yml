@@ -52,6 +52,11 @@ jobs:
           CATAPULT_API_TOKEN: ${{ secrets.CATAPULT_API_TOKEN }}
         run: Rscript scripts/catapult_import.R
 
+      - name: Pull manual Google Sheet data
+        env:
+          GSHEET_CSV_URL: ${{ secrets.GOOGLE_SHEETS_CSV }}
+        run: Rscript scripts/manual_pull.R
+
       - name: Convert CSVs to RDS
         run: Rscript scripts/csv_to_rds.R
 
