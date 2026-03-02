@@ -23,6 +23,40 @@ source("metrics.r")
 # Helpers
 # ---------------------------
 
+# --- player name -> lastname_firstname.jpg (your convention) ---
+player_headshot_slug <- function(player_name) {
+  s <- tolower(stringr::str_trim(player_name))
+  s <- stringr::str_replace_all(s, "[’']", "")      # apostrophes
+  s <- stringr::str_replace_all(s, "-", "")         # hyphens
+  s <- stringr::str_replace_all(s, "[^a-z\\s]", "") # keep letters/spaces
+  s <- stringr::str_squish(s)
+  
+  parts <- unlist(strsplit(s, "\\s+"))
+  if (length(parts) == 0) return(NA_character_)
+  if (length(parts) == 1) return(parts[1])
+  
+  last  <- parts[length(parts)]
+  first <- paste0(parts[-length(parts)], collapse = "")  # First+Middle concatenated
+  paste0(last, "_", first)
+}
+
+
+find_player_headshot <- function(player_name, exts=c("jpg","jpeg","png","webp")) {
+  slug <- player_headshot_slug(player_name)
+  if (is.na(slug) || !nzchar(slug)) return(NA_character_)
+  
+  for (ext in exts) {
+    fn <- paste0(slug, ".", ext)
+    if (file.exists(file.path("www", "HEADSHOTS", fn))) {
+      return(paste0("HEADSHOTS/", fn))   # (no file.path)
+      # return(file.path("HEADSHOTS", fn))  # served automatically from www/
+    }
+  }
+  NA_character_
+}
+
+
+
 # --- name -> file slug used by images ---
 player_photo_slug <- function(player_name) {
   # Expect player_name like "First Last" or "First Middle Last"
@@ -183,12 +217,15 @@ ATH_LABEL <- "Athleticism Score"
 
 ath_tooltip_text <- paste(
   "Weighted composite of position-group percentiles:",
-  "Jump Height 25%",
-  "Force at Peak Power 20%",
-  "Force at Zero Velocity 15%",
-  "Eccentric Braking Impulse 15%",
-  "Avg Max Force (L/R) 20%",
+  "Jump Height 12.5%",
+  "Force at Peak Power 12.5%",
+  "RSI-modified 10%",
+  "Eccentric Braking Impulse 10%",
+  "Avg Max Force (L/R) 15%",
   "Max Imbalance 5% (lower is better)",
+  "Max Velocity 20%",
+  "Max Effort Acceleration 7.5%",
+  "Max Effort Deceleration 7.5% (lower is better)",
   "Weights re-normalize if some metrics are missing.",
   sep = "\n"
 )
@@ -293,7 +330,7 @@ pick_best_keys_for_metric_names <- function(source_name, metric_names, fill_summ
 
 # Radar Plot Metrics
 force_metric_names <- c(
-  "Jump Height (Imp-Mom) in Inches",
+  "Jump Height (Imp-Mom)",
   "RSI-modified (Imp-Mom)",
   "Force at Peak Power",
   "Force at Zero Velocity",
@@ -301,14 +338,13 @@ force_metric_names <- c(
   "Concentric Impulse"
 )
 
+
 nord_metric_names <- c(
   "L Max Force",
   "R Max Force",
   "L Max Impulse",
   "R Max Impulse",
-  "Max Imbalance",
-  "Impulse Imbalance"
-)
+  "Max Imbalance")
 
 
 
@@ -330,13 +366,15 @@ radar_nord_labels <- tibble::tibble(
 ) %>% filter(!is.na(metric_key))
 
 
-
 catapult_metric_names <- c(
-  "Total Distance",
+  "Player Load Per Minute",
   "Max Vel",
   "Max Effort Acceleration",
   "Max Effort Deceleration",
-  "Total Player Load"
+  "Total Player Load",
+  "Explosive Efforts",
+  "High Speed Distance (12 mph)",
+  "Sprint Distance (16 mph)"
 )
 
 catapult_metric_keys_map <- pick_best_keys_for_metric_names("Catapult", catapult_metric_names, fill_summary)
@@ -348,6 +386,8 @@ radar_catapult_labels <- tibble::tibble(
   radar_label = names(catapult_metric_keys_map)
 ) %>% filter(!is.na(metric_key))
 
+radar_catapult_labels <- radar_catapult_labels %>%
+  mutate(radar_label = if_else(radar_label == "Total Player Load", "Recent Player Load", radar_label))
 
 
 # --- Pick important metrics for radar (data-driven) ---
@@ -481,9 +521,9 @@ ui <- navbarPage(
   ),
   id = "main_nav",
   header = tagList(
-    tags$link(rel = "stylesheet", type = "text/css", href = "ucla.css")
+    tags$link(rel="stylesheet", href="ucla.css"),
+    tags$link(rel="icon", type="image/x-icon", href="favicon_v2.ico")
   ),
-  
   # ============== Page 1: Roster Explorer ==============
   tabPanel(
     "Roster Explorer",
@@ -533,6 +573,12 @@ ui <- navbarPage(
         
         tags$hr(),
         helpText("Click a row to open the Player Card."),
+        helpText(
+          style = "font-size:11px; color:#6b7280; margin-top:4px;",
+          HTML("Values shown are each player's <b>season best</b>, except 
+       <b>Athlete Standing Weight</b> (most recent) and 
+       <b>Recent Player Load</b> (most recent session).")
+        ),
         width = 3
       ),
       mainPanel(
@@ -581,22 +627,31 @@ ui <- navbarPage(
           width = 8,
           tabsetPanel(
             tabPanel(
-              "Performance",
+              "Positional Comparison",
               fluidRow(
                 column(
                   3,
-                  selectInput("perf_source", "Source", choices = NULL, selected = "All"),
-                  selectInput("perf_test",   "Test Type",   choices = NULL, selected = "All"),
-                  selectInput("perf_metric", "Metric", choices = NULL, selected = "All"),
-                  dateRangeInput(
-                    "perf_dates", "Date range",
-                    start = min(vald_tests_long_ui$date, na.rm = TRUE),
-                    end   = max(vald_tests_long_ui$date, na.rm = TRUE)
-                  )
+                  radioButtons(
+                    "poscomp_scope",
+                    "Compare within",
+                    choices = c("Position" = "pos", "Group" = "group"),
+                    selected = "pos",
+                    inline = TRUE
+                  ),
+                  checkboxInput("poscomp_show_radar", "Show overlay radar", value = TRUE)
                 ),
                 column(
                   9,
-                  DTOutput("player_perf_table")
+                  tags$p(
+                    style = "font-size:12px; color:#6b7280; margin-bottom:6px;",
+                    HTML("Values shown are each player's <b>career best</b>, except 
+         <b>Athlete Standing Weight</b>, <b>Recent Player Load</b>, 
+         <b>Player Load Per Minute</b>, <b>High Speed Distance</b>, 
+         <b>Sprint Distance</b>, and <b>Explosive Efforts</b> 
+         (most recent session).")
+                  ),
+                  DTOutput("poscomp_table"),
+                  plotlyOutput("poscomp_radar", height = 420)
                 )
               )
             ),
@@ -618,28 +673,6 @@ ui <- navbarPage(
                   checkboxInput("overlay_pos_avg", "Overlay position average", value = TRUE)
                 ),
                 column(9, plotlyOutput("trend_plot", height = 360))
-              )
-            )
-            ,
-            tabPanel(
-              "Positional Comparison",
-              fluidRow(
-                column(
-                  3,
-                  radioButtons(
-                    "poscomp_scope",
-                    "Compare within",
-                    choices = c("Position" = "pos", "Group" = "group"),
-                    selected = "pos",
-                    inline = TRUE
-                  ),
-                  checkboxInput("poscomp_show_radar", "Show overlay radar", value = TRUE)
-                ),
-                column(
-                  9,
-                  DTOutput("poscomp_table"),
-                  plotlyOutput("poscomp_radar", height = 420)
-                )
               )
             ),
             tabPanel(
@@ -664,7 +697,28 @@ ui <- navbarPage(
                   tags$hr(),
                   h4("Catapult Radar"),
                   plotlyOutput("compare_catapult_radar_plot", height = 280)
-                )              )
+                )
+              )
+            ),
+            tabPanel(
+              "Performance",
+              fluidRow(
+                column(
+                  3,
+                  selectInput("perf_source", "Source", choices = NULL, selected = "All"),
+                  selectInput("perf_test",   "Test Type",   choices = NULL, selected = "All"),
+                  selectInput("perf_metric", "Metric", choices = NULL, selected = "All"),
+                  dateRangeInput(
+                    "perf_dates", "Date range",
+                    start = Sys.Date() - 90,
+                    end   = Sys.Date()
+                  )
+                ),
+                column(
+                  9,
+                  DTOutput("player_perf_table")
+                )
+              )
             )
           )
         )
@@ -755,6 +809,10 @@ ui <- navbarPage(
         width = 3
       ),
       mainPanel(
+        tags$p(
+          style = "font-size:12px; color:#6b7280; margin-bottom:6px;",
+          HTML("Correlations use each player's <b>most recent value</b> for each metric.")
+        ),
         DTOutput("corr_table"),
         plotlyOutput("corr_plot", height = 360),
         width = 9
@@ -928,6 +986,7 @@ server <- function(input, output, session) {
     # NordBord...
     "L Max Force",
     "R Max Force",
+    "Avg Max Force",
     "L Max Impulse",
     "R Max Impulse",
     "Max Imbalance",
@@ -938,7 +997,8 @@ server <- function(input, output, session) {
     "Max Vel",
     "Max Effort Acceleration",
     "Max Effort Deceleration",
-    "Total Player Load"
+    "Total Player Load",
+    "Player Load per Minute"
   )
   
   
@@ -1003,8 +1063,43 @@ server <- function(input, output, session) {
     }
     
     cols <- unique(c(front, metric_show))
+    
+    # Priority cols to appear right after identity columns
+    priority_metrics <- c(
+      ATH_KEY,
+      keep_roster_metrics[grepl("\\|Athlete Standing Weight$",   keep_roster_metrics)][1],
+      keep_roster_metrics[grepl("\\|Total Player Load$",         keep_roster_metrics)][1]
+    )
+    priority_metrics <- priority_metrics[!is.na(priority_metrics)]
+    
+    # Remaining metrics in original order, excluding the priority ones
+    rest_metrics <- setdiff(metric_show, priority_metrics)
+    
+    cols <- unique(c(front, priority_metrics, rest_metrics))
+    
     df_disp <- df %>% dplyr::select(dplyr::any_of(cols))
     
+    name_with_headshot <- function(player_name) {
+      src <- find_player_headshot(player_name)
+      
+      if (is.na(src) || !nzchar(src)) {
+        return(player_name)
+      }
+      
+      sprintf(
+        "<div data-order='%s' style='display:flex; align-items:center; gap:8px;'>
+     <img src='%s' style='width:32px; height:32px; border-radius:50%%; object-fit:cover;'/>
+     <span>%s</span>
+   </div>",
+        htmltools::htmlEscape(player_name),
+        src,
+        htmltools::htmlEscape(player_name)
+      )
+    }
+    
+    df_disp <- df_disp %>%
+      mutate(player_name = vapply(player_name, name_with_headshot, character(1)))
+  
     
     # ---- CLEAN COLUMN NAMES FOR DISPLAY ----
     # 1) clean metric names: keep text after final |
@@ -1030,6 +1125,7 @@ server <- function(input, output, session) {
     disp_names <- gsub("Jump Height \\(Imp-Mom\\) in Inches", "Jump Height", disp_names)
     disp_names <- gsub("Jump Height \\(Imp-Mom\\)", "Jump Height", disp_names)
     disp_names <- gsub(" in Inches", "", disp_names)
+    disp_names <- gsub("Total Player Load", "Recent Player Load", disp_names)
     
     colnames(df_disp) <- disp_names
     
@@ -1038,8 +1134,8 @@ server <- function(input, output, session) {
     
     dt <- DT::datatable(
       df_disp,
-      container = container,   # ✅ add this
-      escape = FALSE,          # ✅ important so ⓘ renders
+      container = container,
+      escape = FALSE,
       rownames = FALSE,
       selection = "single",
       options = list(
@@ -1047,10 +1143,7 @@ server <- function(input, output, session) {
         scrollX = TRUE,
         searchHighlight = TRUE,
         columnDefs = list(
-          list(
-            targets = 0,
-            className = "dt-nowrap"
-          )
+          list(targets = 0, className = "dt-nowrap")
         ),
         order = if ("Athleticism Score" %in% names(df_disp)) {
           list(list(which(names(df_disp) == "Athleticism Score") - 1, "desc"))
@@ -1059,6 +1152,7 @@ server <- function(input, output, session) {
         }
       )
     )
+    
     
     
     # Color-code Athleticism Score if present
@@ -1346,7 +1440,8 @@ server <- function(input, output, session) {
     group_val <- if (!is.null(group_col)) row[[group_col]][1] else NA
     pos_val   <- if (!is.null(pos_col))   row[[pos_col]][1] else NA
     class_val <- if (!is.null(class_col)) row[[class_col]][1] else NA
-    headshot  <- if (!is.null(headshot_col)) row[[headshot_col]][1] else NA
+    headshot <- find_player_headshot(nm)
+    
     
     ht_val   <- if ("height_display"   %in% names(row)) fmt_measure(row$height_display)   else "—"
     wt_val   <- if ("weight_display"   %in% names(row)) fmt_measure(row$weight_display)   else "—"
@@ -1405,15 +1500,61 @@ server <- function(input, output, session) {
           fluidRow(
             column(
               2,
-              if (!is.null(headshot_col) && !is.na(headshot) && nzchar(headshot)) {
-                tags$img(src = headshot, style="width:100%; height:110px; object-fit:cover; border-radius:10px;")
+              style = "
+                display:flex;
+                align-items:center;
+                justify-content:center;
+                padding-right:6px;
+              ",
+              
+              if (!is.na(headshot) && nzchar(headshot)) {
+                
+                tags$div(
+                  style = "
+                    width:150px;
+                    height:170px;
+                    display:flex;
+                    align-items:center;
+                    justify-content:center;
+                    background:transparent;
+                    border-radius:16px;
+                    overflow:hidden;
+                  ",
+                  
+                  tags$img(
+                    src = headshot,
+                    style = "
+                      max-width:100%;
+                      max-height:100%;
+                      object-fit:contain;   /* shows full image */
+                      display:block;
+                      border-radius:14px;
+                      filter: drop-shadow(0 4px 10px rgba(0,0,0,0.15));
+                    "
+                  )
+                )
+                
               } else {
-                div(
-                  style="width:100%; height:110px; border-radius:10px; background:#f3f4f6; display:flex; align-items:center; justify-content:center;",
+                
+                tags$div(
+                  style="
+                    width:150px;
+                    height:170px;
+                    border-radius:16px;
+                    background:#f3f4f6;
+                    display:flex;
+                    align-items:center;
+                    justify-content:center;
+                    font-size:12px;
+                    color:#6b7280;
+                  ",
                   span("No headshot")
                 )
+                
               }
-            ),
+            )
+
+            ,
             column(
               10,
               h3(nm, style = "border-bottom:4px solid #FFD100; padding-bottom:4px;"),
@@ -1550,29 +1691,15 @@ server <- function(input, output, session) {
     pid <- roster_view %>% filter(player_name == nm) %>% slice(1) %>% pull(player_id)
     if (length(pid) == 0) return(NULL)
     
-    latest_long <- vald_tests_long_ui %>%
-      filter(date <= as_of_date) %>%
-      group_by(player_id, metric_key) %>%
-      slice_max(date, n = 1, with_ties = FALSE) %>%
-      ungroup()
-    
-    # ---- MOST RECENT metric per metric_key ----
-    latest_pcts <- latest_long %>%
-      filter(player_id == pid) %>%
-      select(player_id, metric_key, date) %>%
-      left_join(
-        roster_percentiles_long %>% select(player_id, metric_key, percentile),
-        by = c("player_id", "metric_key")
-      ) %>%
-      filter(!is.na(percentile))
+    latest_pcts <- roster_percentiles_long %>%
+      filter(player_id == pid, !is.na(percentile))
     
     if (nrow(latest_pcts) == 0) {
       return(tags$ul(tags$li("No percentile tags yet.")))
     }
     
-    # ---- Strengths (top end) ----
     strengths <- latest_pcts %>%
-      filter(percentile >= 80) %>%           # ← adjust threshold if you want
+      filter(percentile >= 80) %>%
       arrange(desc(percentile)) %>%
       slice_head(n = 5) %>%
       mutate(
@@ -1581,9 +1708,8 @@ server <- function(input, output, session) {
       ) %>%
       pull(label)
     
-    # ---- Weaknesses (bottom end) ----
     weaknesses <- latest_pcts %>%
-      filter(percentile <= 20) %>%            # ← adjust threshold if you want
+      filter(percentile <= 20) %>%
       arrange(percentile) %>%
       slice_head(n = 5) %>%
       mutate(
@@ -1593,13 +1719,13 @@ server <- function(input, output, session) {
       pull(label)
     
     tags$div(
-      tags$h5(style="color:#2774AE;", "Strengths"),
+      tags$h5(style = "color:#2774AE;", "Strengths"),
       if (length(strengths) == 0) {
         tags$ul(tags$li("—"))
       } else {
         tags$ul(lapply(strengths, tags$li))
       },
-      tags$h5(style="color:#9B1C1C;", "Weaknesses"),
+      tags$h5(style = "color:#9B1C1C;", "Weaknesses"),
       if (length(weaknesses) == 0) {
         tags$ul(tags$li("—"))
       } else {
@@ -1608,6 +1734,23 @@ server <- function(input, output, session) {
     )
   })
   
+  
+  position_group_values <- reactive({
+    pid <- player_pid()
+    row <- roster_view %>% filter(player_id == pid) %>% slice(1)
+    req(nrow(row) == 1)
+    
+    pos_val <- if (!is.null(pos_col)) row[[pos_col]][1] else NA
+    req(!is.na(pos_val))
+    
+    pos_player_ids <- roster_view %>%
+      filter(.data[[pos_col]] == pos_val) %>%
+      pull(player_id)
+    
+    vald_tests_long_ui %>%
+      filter(player_id %in% pos_player_ids, date <= as_of_date) %>%
+      mutate(val_num = suppressWarnings(as.numeric(metric_value)))
+  })
 
   
   # ---------- Performance table (all tests for player with percentile lookup) ----------
@@ -1615,21 +1758,62 @@ server <- function(input, output, session) {
     pid <- player_pid()
     df <- perf_filtered_df()
     
-    pct_map <- roster_percentiles_long %>%
-      filter(player_id == pid) %>%
-      select(metric_key, RosterPercentile = percentile)
+    # Get position group for this player
+    row <- roster_view %>% filter(player_id == pid) %>% slice(1)
+    pos_val <- if (!is.null(pos_col) && nrow(row) == 1) row[[pos_col]][1] else NA
+    
+    # All players in same position group
+    pos_player_ids <- if (!is.na(pos_val) && !is.null(pos_col)) {
+      roster_view %>%
+        filter(.data[[pos_col]] == pos_val) %>%
+        pull(player_id)
+    } else {
+      character(0)
+    }
+    
+    # All values from position group (for same-day ranking)
+    pos_vals <- vald_tests_long_ui %>%
+      filter(player_id %in% pos_player_ids, date <= as_of_date) %>%
+      mutate(val_num = suppressWarnings(as.numeric(metric_value)))
+    
+    # Compute percentile of a session value vs position group on same day
+    compute_pct <- function(metric_key_val, session_date, session_val) {
+      same_day_vals <- pos_vals %>%
+        filter(metric_key == metric_key_val, date == session_date) %>%
+        pull(val_num)
+      
+      same_day_vals <- same_day_vals[is.finite(same_day_vals)]
+      if (length(same_day_vals) < 2 || is.na(session_val) || !is.finite(session_val)) return(NA_real_)
+      
+      idx <- match(session_val, same_day_vals)
+      if (is.na(idx)) return(NA_real_)
+      
+      if (is_flip_metric(metric_key_val)) {
+        round(pct_rank_100(-same_day_vals)[idx], 1)
+      } else {
+        round(pct_rank_100(same_day_vals)[idx], 1)
+      }
+    }
     
     df_out <- df %>%
-      left_join(pct_map, by = "metric_key") %>%
+      mutate(
+        Value = suppressWarnings(as.numeric(metric_value)),
+        session_pct = mapply(
+          compute_pct,
+          metric_key,
+          date,
+          Value
+        )
+      ) %>%
       arrange(desc(date), source, test_type, metric_name) %>%
       transmute(
-        Date   = date,
-        Source = source,
-        Test   = test_type,
-        Metric = metric_name,
-        Value  = suppressWarnings(as.numeric(metric_value)),
-        Units  = units,
-        `Position Percentile (as-of)` = suppressWarnings(as.numeric(RosterPercentile))
+        Date     = date,
+        Source   = source,
+        Test     = test_type,
+        Metric   = metric_name,
+        Value,
+        Units    = units,
+        `Position Percentile (same day)` = session_pct
       )
     
     coldefs <- list(
@@ -1654,7 +1838,7 @@ server <- function(input, output, session) {
       )))
     }
     
-    pct_idx <- match("Position Percentile (as-of)", names(df_out))
+    pct_idx <- match("Position Percentile (same day)", names(df_out))
     if (!is.na(pct_idx)) {
       coldefs <- append(coldefs, list(list(
         targets = pct_idx - 1,
@@ -1683,7 +1867,6 @@ server <- function(input, output, session) {
       )
     )
   })
-  
   
   
   
@@ -1887,16 +2070,58 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       )) %>%
       ungroup()
     
-    latest_vals <- vald_tests_long_ui %>%
-      filter(player_id %in% cohort$player_id, metric_key %in% keys, date <= as_of_date) %>%
+    # latest_vals <- vald_tests_long_ui %>%
+    #   filter(player_id %in% cohort$player_id, metric_key %in% keys, date <= as_of_date) %>%
+    #   group_by(player_id, player_name, metric_key) %>%
+    #   slice_max(date, n = 1, with_ties = FALSE) %>%
+    #   ungroup() %>%
+    #   transmute(
+    #     player_name = as.character(player_name),
+    #     metric_key = as.character(metric_key),
+    #     raw_value = suppressWarnings(as.numeric(metric_value))
+    #   )
+    
+    # Keys where most-recent is more appropriate than best
+    latest_preferred_keys <- keys[
+      grepl("Total Player Load|Player Load Per Minute|High Speed Distance|Sprint Distance|Explosive Efforts",
+            keys, ignore.case = TRUE) &
+        startsWith(keys, "Catapult|")
+    ]
+    best_keys <- setdiff(keys, latest_preferred_keys)
+    
+    # Best-all-time values from vald_best_wide
+    best_vals <- vald_best_wide %>%
+      filter(player_id %in% cohort$player_id) %>%
+      select(player_id, player_name, any_of(best_keys)) %>%
+      pivot_longer(
+        cols      = any_of(best_keys),
+        names_to  = "metric_key",
+        values_to = "raw_value"
+      ) %>%
+      filter(!is.na(raw_value)) %>%
+      mutate(
+        player_name = as.character(player_name),
+        metric_key  = as.character(metric_key),
+        raw_value   = as.numeric(raw_value)
+      )
+    
+    # Most-recent values from vald_tests_long_ui
+    recent_vals <- vald_tests_long_ui %>%
+      filter(player_id %in% cohort$player_id,
+             metric_key %in% latest_preferred_keys,
+             date <= as_of_date) %>%
       group_by(player_id, player_name, metric_key) %>%
       slice_max(date, n = 1, with_ties = FALSE) %>%
       ungroup() %>%
       transmute(
         player_name = as.character(player_name),
-        metric_key = as.character(metric_key),
-        raw_value = suppressWarnings(as.numeric(metric_value))
-      )
+        metric_key  = as.character(metric_key),
+        raw_value   = suppressWarnings(as.numeric(metric_value))
+      ) %>%
+      filter(!is.na(raw_value))
+    
+    latest_vals <- bind_rows(best_vals, recent_vals)
+  
     
     if (nrow(latest_vals) == 0) return(tibble::tibble())
     
@@ -1986,6 +2211,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       nm <- as.character(nm)[1]
       if (is.na(nm) || !nzchar(nm)) return("")
       
+      nm <- gsub("Total Player Load", "Recent Player Load", nm)   # add this
       nm <- gsub("Jump Height \\(Imp-Mom\\) in Inches", "Jump Height", nm)
       nm <- gsub("Jump Height \\(Imp-Mom\\)", "Jump Height", nm)
       nm <- gsub("RSI-modified \\(Imp-Mom\\)", "RSI-modified", nm)
@@ -2083,31 +2309,65 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     }
     
     # Make sure every player has every axis (keeps polygons aligned)
-    axis_levels <- sort(unique(long$axis))
+    # ---- CUSTOM METRIC ORDER BY TEST ----
+    axis_order <- c(
+      # CMJ / ForceDecks
+      "Jump Height (Imp-Mom)",
+      "Force at Zero Velocity",
+      "Force at Peak Power",
+      "Concentric Impulse",
+      "RSI-modified (Imp-Mom)",
+      "Eccentric Braking Impulse",
+      
+      # Strength asymmetry
+      "L Max Force",
+      "R Max Force",
+      "L Max Impulse",
+      "R Max Impulse",
+      "Max Imbalance",
+      
+      # GPS / Catapult
+      "Recent Player Load",
+      "Player Load Per Minute",
+      "High Speed Distance (12 mph)",
+      "Sprint Distance (16 mph)",
+      "Explosive Efforts",
+      "Max Effort Acceleration",
+      "Max Effort Deceleration",
+      "Max Vel"
+    )
+    
+    axis_levels <- axis_order[axis_order %in% unique(long$axis)]
+    
+    long <- long %>% mutate(axis = factor(axis, levels = axis_levels))
+    
     long <- long %>%
       tidyr::complete(
         player_id, player_name, axis = axis_levels,
         fill = list(percentile = NA_real_)
       ) %>%
       mutate(
-        # Re-ensure types after complete() which can introduce NAs
         player_name = as.character(player_name),
-        axis = as.character(axis)
+        axis = factor(as.character(axis), levels = axis_levels)
       )
     
-    make_closed <- function(df_one) {
-      df_one <- df_one %>% arrange(axis)
+    
+    make_closed <- function(df_one, axis_levels) {
+      df_one <- df_one %>% arrange(match(axis, axis_levels))
       bind_rows(df_one, df_one %>% slice(1))
     }
+    
     
     nm_sel <- selected_player()
     
     p <- plotly::plot_ly()
     
     for (pn in unique(long$player_name)) {
+      
       df_one <- long %>%
         filter(player_name == pn) %>%
-        make_closed()
+        make_closed(axis_levels)
+      
       
       if (all(is.na(df_one$percentile))) next
       
@@ -2139,11 +2399,16 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     p %>%
       plotly::layout(
         polar = list(
-          radialaxis = list(range = c(0, 100), tickvals = c(0, 25, 50, 75, 100))
+          radialaxis = list(range = c(0, 100), tickvals = c(0, 25, 50, 75, 100)),
+          angularaxis = list(
+            categoryorder = "array",
+            categoryarray = axis_levels
+          )
         ),
         margin = list(l = 40, r = 40, t = 40, b = 40),
         showlegend = TRUE
       )
+    
   })
   
   # comps
