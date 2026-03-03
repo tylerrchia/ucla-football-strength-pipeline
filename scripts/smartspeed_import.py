@@ -1,0 +1,159 @@
+import os
+import time
+import requests
+import pandas as pd
+import ast
+from datetime import datetime, timedelta, timezone
+
+clientId = os.getenv("VALD_CLIENT_ID")
+clientSecret = os.getenv("VALD_CLIENT_SECRET")
+team_id = os.getenv("VALD_TENANT_ID")
+
+profiles = pd.read_csv("")
+
+# --------------------------------------------------------------------------------------------------
+
+token_cache = {
+    "access_token": None,
+    "expires_at": None
+}
+
+def get_token(client_id, client_secret):
+    """
+    Retrieves and caches a Bearer token using client_credentials flow.
+    """
+
+    # return cached token if still valid
+    if (
+        token_cache["access_token"]
+        and token_cache["expires_at"]
+        and token_cache["expires_at"] > time.time()
+    ):
+        return token_cache["access_token"]
+
+    url = "https://security.valdperformance.com/connect/token"
+
+    payload = {
+        "grant_type": "client_credentials",
+        "client_id": client_id,
+        "client_secret": client_secret
+    }
+
+    response = requests.post(url, data=payload)
+
+    if response.status_code != 200:
+        raise Exception(f"Token request failed: {response.status_code} - {response.text}")
+
+    data = response.json()
+
+    access_token = data["access_token"]
+    expires_in = data.get("expires_in", 7200)
+
+    token_cache["access_token"] = f"Bearer {access_token}"
+    token_cache["expires_at"] = time.time() + expires_in
+
+    print("New token cached")
+
+    return token_cache["access_token"]
+
+token = get_token(clientId, clientSecret)
+
+headers = {
+    "Authorization": token,
+    "Accept": "application/json"
+}
+
+# function to get last 7 days
+def get_last_7_days_utc():
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    return seven_days_ago.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+# pull only last 7 days of data
+def pull_last_7_days_tests(team_id: str) -> pd.DataFrame:
+    all_data = []
+    page = 1
+
+    base_url = f"https://prd-use-api-extsmartspeed.valdperformance.com/v1/team/{team_id}/tests"
+
+    test_from_utc = get_last_7_days_utc()
+    print(f"Pulling tests from: {test_from_utc}")
+
+    while True:
+        headers = {
+            "Authorization": get_token(clientId, clientSecret),
+            "Accept": "application/json"
+        }
+
+        params = {
+            "testFromUtc": test_from_utc,
+            "page": page
+        }
+
+        response = requests.get(base_url, headers=headers, params=params)
+
+        if response.status_code != 200:
+            raise Exception(f"API error {response.status_code}: {response.text}")
+
+        data = response.json()
+
+        if not data:
+            break
+
+        all_data.extend(data)
+        print(f"Pulled page {page} ({len(data)} records)")
+        page += 1
+
+    print(f"Total records pulled (last 7 days): {len(all_data)}")
+    return pd.DataFrame(all_data)
+
+df = pull_last_7_days_tests(team_id)
+
+# if column is string, convert to dict
+df['runningSummaryFields'] = df['runningSummaryFields'].apply(
+    lambda x: ast.literal_eval(x) if isinstance(x, str) else x
+)
+
+# flatten completely
+running_expanded = pd.json_normalize(df['runningSummaryFields'])
+
+# merge back
+df = pd.concat(
+    [df.drop(columns=['runningSummaryFields']),
+     running_expanded],
+    axis=1
+)
+
+
+# normalize column format
+df['profileId'] = (
+    df['profileId']
+    .astype(str)
+    .str.strip()
+    .str.lower()
+)
+
+profiles['profileId'] = (
+    profiles['profileId']
+    .astype(str)
+    .str.strip()
+    .str.lower()
+)
+
+# filter to only keep football players
+df_filtered = df[df['profileId'].isin(profiles['profileId'])]
+
+# add name column based on profileId
+df_filtered = df.merge(
+    profiles[['profileId', 'name']],
+    on='profileId',
+    how='inner'
+)
+
+# move name column to the front
+cols = ['name'] + [col for col in df_filtered.columns if col != 'name']
+df_filtered = df_filtered[cols]
+
+df_filtered = df_filtered.drop(columns=['additionalOptionsFields', 'jumpingSummaryFields', 'groupUnderTestId'])
+
+# save as csv
+# df_filtered.to_csv("smartspeed.csv", index=False)
