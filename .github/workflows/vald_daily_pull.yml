@@ -66,7 +66,7 @@ jobs:
           VALD_CLIENT_SECRET: ${{ secrets.VALD_CLIENT_SECRET }}
           VALD_TENANT_ID: ${{ secrets.VALD_TENANT_ID }}
           DATA_OUTPUT_DIR: ${{ env.DATA_OUTPUT_DIR }}
-        run: python scripts/vald_import.py
+        run: python scripts/smartspeed_import.py
 
       - name: Pull manual Google Sheet data
         env:
