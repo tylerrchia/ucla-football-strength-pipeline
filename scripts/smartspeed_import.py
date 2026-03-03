@@ -9,7 +9,11 @@ clientId = os.getenv("VALD_CLIENT_ID")
 clientSecret = os.getenv("VALD_CLIENT_SECRET")
 team_id = os.getenv("VALD_TENANT_ID")
 
-profiles = pd.read_csv("")
+# read in profiles for team
+output_dir = os.getenv("DATA_OUTPUT_DIR", "data")
+os.makedirs(output_dir, exist_ok=True)
+profiles_path = os.path.join(output_dir, "profiles_with_groups.csv")
+profiles = pd.read_csv(profiles_path)
 
 # --------------------------------------------------------------------------------------------------
 
