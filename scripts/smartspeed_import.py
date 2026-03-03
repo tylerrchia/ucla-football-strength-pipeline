@@ -159,5 +159,19 @@ df_filtered = df_filtered[cols]
 
 df_filtered = df_filtered.drop(columns=['additionalOptionsFields', 'jumpingSummaryFields', 'groupUnderTestId'])
 
-# save as csv
-# df_filtered.to_csv("smartspeed.csv", index=False)
+# --------------------------------------------------------------------------------------------------
+
+# append new tests
+file_path = os.path.join(output_dir, "smartspeed.csv")
+
+if os.path.exists(file_path):
+    existing_df = pd.read_csv(file_path)
+
+    combined_df = (
+        pd.concat([existing_df, df_filtered], ignore_index=True)
+        .drop_duplicates(subset=["profileId", "testId", "date"], keep="last")
+    )
+else:
+    combined_df = df_filtered
+
+combined_df.to_csv(file_path, index=False)
