@@ -31,6 +31,14 @@ jobs:
       - name: Restore renv environment
         uses: r-lib/actions/setup-renv@v2
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: pip install requests os time pandas ast datetime
+
       # Checkout PRIVATE data repo
       - name: Checkout private data repo
         uses: actions/checkout@v4
@@ -51,6 +59,14 @@ jobs:
         env:
           CATAPULT_API_TOKEN: ${{ secrets.CATAPULT_API_TOKEN }}
         run: Rscript scripts/catapult_import.R
+
+      - name: Run SmartSpeed data pull
+        env:
+          VALD_CLIENT_ID: ${{ secrets.VALD_CLIENT_ID }}
+          VALD_CLIENT_SECRET: ${{ secrets.VALD_CLIENT_SECRET }}
+          VALD_TENANT_ID: ${{ secrets.VALD_TENANT_ID }}
+          DATA_OUTPUT_DIR: ${{ env.DATA_OUTPUT_DIR }}
+        run: python scripts/vald_import.py
 
       - name: Pull manual Google Sheet data
         env:
