@@ -37,7 +37,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python dependencies
-        run: pip install requests os time pandas ast datetime
+        run: pip install requests pandas
 
       # Checkout PRIVATE data repo
       - name: Checkout private data repo
