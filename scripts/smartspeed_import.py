@@ -127,7 +127,6 @@ df = pd.concat(
     axis=1
 )
 
-
 # normalize column format
 df['profileId'] = (
     df['profileId']
@@ -147,7 +146,7 @@ profiles['profileId'] = (
 df_filtered = df[df['profileId'].isin(profiles['profileId'])]
 
 # add name column based on profileId
-df_filtered = df.merge(
+df_filtered = df_filtered.merge(
     profiles[['profileId', 'name']],
     on='profileId',
     how='inner'
@@ -169,7 +168,7 @@ if os.path.exists(file_path):
 
     combined_df = (
         pd.concat([existing_df, df_filtered], ignore_index=True)
-        .drop_duplicates(subset=["profileId", "testId", "date"], keep="last")
+        .drop_duplicates(subset=["profileId", "testResultId", "testDateUtc"], keep="last")
     )
 else:
     combined_df = df_filtered
