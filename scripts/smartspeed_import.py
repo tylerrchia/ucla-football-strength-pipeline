@@ -200,6 +200,20 @@ combined_df["bestSplitSeconds"] = pd.to_numeric(
     errors="coerce"
 )
 
+# remove reps before 2/6/26
+cutoff_date = pd.Timestamp("2026-02-06", tz="UTC")
+combined_df = combined_df[
+    combined_df["testDateUtc"] >= cutoff_date
+]
+
+# remove Flying 10s reps where bestSplitSeconds > 2
+combined_df = combined_df[
+    ~(
+        (combined_df["testName"].str.strip().str.lower() == "flying 10s") &
+        (combined_df["bestSplitSeconds"] > 2)
+    )
+]
+
 # sort so lowest bestSplitSeconds comes first
 combined_df = combined_df.sort_values(
     by=["profileId", "testDate", "bestSplitSeconds"],
