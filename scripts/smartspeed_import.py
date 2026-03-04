@@ -173,4 +173,12 @@ if os.path.exists(file_path):
 else:
     combined_df = df_filtered
 
+# clean data for wrong test type
+if "velocityFields.distance" in combined_df.columns:
+    combined_df.loc[
+        (combined_df["testName"] == "10m sprint") &
+        (combined_df["velocityFields.distance"].astype(float) == 10.0),
+        "testName"
+    ] = "Flying 10s"
+
 combined_df.to_csv(file_path, index=False)
