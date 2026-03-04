@@ -1,4 +1,4 @@
-name: Daily VALD Data Pull
+name: Daily Data Pull
 
 permissions:
   contents: read   # prevent writing to public repo
