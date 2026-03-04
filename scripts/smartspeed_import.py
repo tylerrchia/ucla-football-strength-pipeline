@@ -175,9 +175,14 @@ else:
 
 # clean data for wrong test type
 if "velocityFields.distance" in combined_df.columns:
+    combined_df["velocityFields.distance"] = pd.to_numeric(
+        combined_df["velocityFields.distance"],
+        errors="coerce"
+    )
+
     combined_df.loc[
-        (combined_df["testName"] == "10m sprint") &
-        (combined_df["velocityFields.distance"].astype(float) == 10.0),
+        (combined_df["testName"].str.strip().str.lower() == "10m sprint") &
+        (combined_df["velocityFields.distance"] == 10),
         "testName"
     ] = "Flying 10s"
 
