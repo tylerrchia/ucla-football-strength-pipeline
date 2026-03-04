@@ -186,4 +186,29 @@ if "velocityFields.distance" in combined_df.columns:
         "testName"
     ] = "Flying 10s"
 
+# take the best test result for a given player on a given date
+# ensure datetime format
+combined_df["testDateUtc"] = pd.to_datetime(combined_df["testDateUtc"], errors="coerce")
+
+# create date-only column (removes time)
+combined_df["testDate"] = combined_df["testDateUtc"].dt.date
+
+# make sure bestSplitSeconds is numeric
+combined_df["bestSplitSeconds"] = pd.to_numeric(
+    combined_df["bestSplitSeconds"],
+    errors="coerce"
+)
+
+# sort so lowest bestSplitSeconds comes first
+combined_df = combined_df.sort_values(
+    by=["name", "testDate", "bestSplitSeconds"],
+    ascending=[True, True, True]
+)
+
+# drop duplicates keeping lowest per name per date
+combined_df = combined_df.drop_duplicates(
+    subset=["name", "testDate"],
+    keep="first"
+)
+
 combined_df.to_csv(file_path, index=False)
