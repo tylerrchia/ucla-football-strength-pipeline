@@ -201,7 +201,7 @@ combined_df["bestSplitSeconds"] = pd.to_numeric(
 )
 
 # remove reps before 2/6/26
-cutoff_date = pd.Timestamp("2026-02-06", tz="UTC")
+cutoff_date = pd.Timestamp("2026-02-06")
 combined_df = combined_df[
     combined_df["testDateUtc"] >= cutoff_date
 ]
