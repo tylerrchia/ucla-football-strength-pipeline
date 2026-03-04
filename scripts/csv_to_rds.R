@@ -48,3 +48,14 @@ if (file.exists(manual_csv)) {
     manual_rds
   )
 }
+
+# -------------------------------------------------------------------------------
+smartspeed_csv <- file.path(output_dir, "smartspeed.csv")
+smartspeed_rds <- file.path(output_dir, "smartspeed.rds")
+
+if (file.exists(smartspeed_csv)) {
+  saveRDS(
+    read_csv(smartspeed_csv, show_col_types = FALSE),
+    smartspeed_rds
+  )
+}
