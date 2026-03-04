@@ -35,8 +35,8 @@ def get_token(client_id, client_secret):
     ):
         return token_cache["access_token"]
 
-    url = "https://security.valdperformance.com/connect/token"
-
+    url = "https://auth.prd.vald.com/oauth/token"
+    
     payload = {
         "grant_type": "client_credentials",
         "client_id": client_id,
