@@ -201,13 +201,13 @@ combined_df["bestSplitSeconds"] = pd.to_numeric(
 
 # sort so lowest bestSplitSeconds comes first
 combined_df = combined_df.sort_values(
-    by=["name", "testDate", "bestSplitSeconds"],
+    by=["profileId", "testDate", "bestSplitSeconds"],
     ascending=[True, True, True]
 )
 
 # drop duplicates keeping lowest per name per date
 combined_df = combined_df.drop_duplicates(
-    subset=["name", "testDate"],
+    subset=["profileId", "testDate"],
     keep="first"
 )
 
