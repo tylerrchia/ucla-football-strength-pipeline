@@ -40,7 +40,8 @@ def get_token(client_id, client_secret):
     payload = {
         "grant_type": "client_credentials",
         "client_id": client_id,
-        "client_secret": client_secret
+        "client_secret": client_secret,
+        "audience": "vald-api-external"
     }
 
     response = requests.post(url, data=payload)
