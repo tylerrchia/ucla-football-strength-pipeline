@@ -7,6 +7,9 @@ This repository contains a GitHub Actions workflow that:
 - Commits updates automatically
 - Data is stored in a separate private repository
 
+## Automated R Shiny App Deployment
+- Redeploys app every time one of the scripts is updated 
+
 ### Environment Reproducibility
 - R version is pinned via GitHub Actions
 - Exact package versions are locked using `renv`
@@ -27,3 +30,6 @@ The workflow requires the following GitHub secrets:
 - CATAPULT_API_TOKEN
 - DATA_REPO_PAT
 - GOOGLE_SHEETS_CSV
+- SHINYAPPS_ACCOUNT
+- SHINYAPPS_SECRET
+- SHINYAPPS_TOKEN
