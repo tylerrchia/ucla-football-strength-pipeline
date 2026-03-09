@@ -39,6 +39,10 @@ jobs:
       - name: Restore renv
         uses: r-lib/actions/setup-renv@v2
 
+      - name: Install rsconnect
+        run: |
+          R -e 'install.packages("rsconnect")'
+
       # Deploy app
       - name: Deploy to shinyapps.io
         env:
