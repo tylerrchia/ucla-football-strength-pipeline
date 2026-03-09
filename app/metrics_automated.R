@@ -37,7 +37,7 @@ suppressPackageStartupMessages({
 # ---------------------------
 # Config
 # ---------------------------
-DATA_DIR <- Sys.getenv("DATA_OUTPUT_DIR", unset = "UCLA-Football-Strength-App-DATA/data")
+DATA_DIR <- Sys.getenv("DATA_OUTPUT_DIR", unset = "data-repo/data")
 
 NORD_PATH  <- file.path(DATA_DIR, "nordbord.rds")
 FORCE_PATH <- file.path(DATA_DIR, "forcedecks.rds")
