@@ -56,5 +56,9 @@ jobs:
             token = Sys.getenv("SHINYAPPS_TOKEN"),
             secret = Sys.getenv("SHINYAPPS_SECRET")
           );
-          rsconnect::deployApp(appDir=".", forceUpdate=TRUE)
+          rsconnect::deployApp(
+            appDir="app",
+            appPrimaryDoc="app_automated.r",
+            forceUpdate=TRUE
+          )
           '
