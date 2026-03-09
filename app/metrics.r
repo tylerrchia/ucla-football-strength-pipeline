@@ -128,7 +128,7 @@ pct_rank_100 <- function(x) {
 }
 
 is_flip_metric <- function(metric_key) {
-  grepl("Imbalance|Deceleration", metric_key, ignore.case = TRUE)
+  grepl("Imbalance|Deceleration|Best Split Seconds", metric_key, ignore.case = TRUE)
 }
 
 latest_only_metric_name <- function(metric_key) {
@@ -542,6 +542,56 @@ ingest_catapult <- function(path) {
                     "source", "test_type", "metric_name", "metric_value", "units")))
 }
 
+
+# ---------------------------
+# SmartSpeed ingestion
+# ---------------------------
+
+SMART_PATH <- "smartspeed.rds"
+
+ingest_smartspeed <- function(path) {
+  if (!file.exists(path)) {
+    message("Warning: SmartSpeed file not found at ", path)
+    return(tibble::tibble())
+  }
+  
+  # support both .rds and .csv
+  if (grepl("\\.rds$", path, ignore.case = TRUE)) {
+    raw <- readRDS(path)
+  } else {
+    raw <- readr::read_csv(path, show_col_types = FALSE)
+  }
+  
+  raw %>%
+    mutate(
+      date = if ("testDate" %in% names(.)) {
+        if (inherits(testDate, "Date")) testDate else {
+          parsed <- suppressWarnings(lubridate::ymd(testDate))
+          if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::mdy(testDate))
+          if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::dmy(testDate))
+          parsed
+        }
+      } else if ("testDateUtc" %in% names(.)) {
+        as.Date(testDateUtc)
+      } else {
+        as.Date(NA)
+      },
+      datetime    = as.POSIXct(date),
+      player_name = fix_player_name(str_squish(name)),
+      player_id   = standardize_name(player_name),
+      source      = "SmartSpeed",
+      test_type   = coalesce(testName, testTypeName, "SmartSpeed"),
+      metric_name = "Best Split Seconds",
+      metric_value = suppressWarnings(as.numeric(bestSplitSeconds)),
+      units       = "s"
+    ) %>%
+    filter(!is.na(metric_value)) %>%
+    select(
+      player_id, player_name, date, datetime,
+      source, test_type, metric_name, metric_value, units
+    )
+}
+
 # ============================================================
 # LOAD ALL DATA SOURCES
 # ============================================================
@@ -549,11 +599,12 @@ ingest_catapult <- function(path) {
 nord      <- ingest_nordboard(NORD_PATH)
 force     <- ingest_forcedecks(FORCE_PATH)
 catapult  <- ingest_catapult(CAT_PATH)
+smartspeed <- ingest_smartspeed(SMART_PATH)
 
-vald_tests_long <- bind_rows(nord, force, catapult) %>%
+vald_tests_long <- bind_rows(nord, force, catapult, smartspeed) %>%
   mutate(
     metric_value = as.numeric(metric_value),
-    metric_value = round(metric_value, 2)
+    metric_value = round(metric_value, 3)
   )
 
 # Separate catapult reference kept for compatibility
@@ -722,7 +773,8 @@ keep_roster_metrics <- fill_summary %>%
 force_include_keys <- c(
   "Catapult|Catapult|Explosive Efforts",
   "Catapult|Catapult|High Speed Distance (12 mph)",
-  "Catapult|Catapult|Sprint Distance (16 mph)"
+  "Catapult|Catapult|Sprint Distance (16 mph)",
+  "SmartSpeed|Flying 10s|Best Split Seconds"
 )
 
 keep_roster_metrics <- unique(c(keep_roster_metrics, force_include_keys))
@@ -800,10 +852,18 @@ vald_latest_wide <- vald_tests_long_ui %>%
 # ============================================================
 
 # Keys where most-recent is more appropriate than best
+# latest_preferred_keys <- keep_roster_metrics[
+#   grepl("Total Player Load|Player Load Per Minute|High Speed Distance|Sprint Distance|Explosive Efforts",
+#         keep_roster_metrics, ignore.case = TRUE) &
+#     startsWith(keep_roster_metrics, "Catapult|")
+# ]
+
 latest_preferred_keys <- keep_roster_metrics[
-  grepl("Total Player Load|Player Load Per Minute|High Speed Distance|Sprint Distance|Explosive Efforts",
-        keep_roster_metrics, ignore.case = TRUE) &
-    startsWith(keep_roster_metrics, "Catapult|")
+  grepl(
+    "Athlete Standing Weight|Total Player Load|Player Load Per Minute|High Speed Distance|Sprint Distance|Explosive Efforts|Total Distance",
+    keep_roster_metrics,
+    ignore.case = TRUE
+  )
 ]
 
 best_only_keys <- setdiff(
@@ -888,11 +948,14 @@ roster_percentiles_long <- roster_best_percentiles_pos_long %>%
 
 athleticism_key <- "Composite|Score|Athleticism Score"
 
-find_key_by_source_and_name <- function(source_name, metric_name) {
+find_key <- function(source_name, test_type = NULL, metric_name) {
   cand <- keep_roster_metrics[startsWith(keep_roster_metrics, paste0(source_name, "|"))]
   if (length(cand) == 0) return(NA_character_)
   
-  cand_metric <- sub("^.*\\|", "", cand)
+  parts <- strsplit(cand, "\\|")
+  cand_source <- vapply(parts, function(x) x[1], character(1))
+  cand_test   <- vapply(parts, function(x) if (length(x) >= 2) x[2] else NA_character_, character(1))
+  cand_metric <- vapply(parts, function(x) if (length(x) >= 3) x[3] else NA_character_, character(1))
   
   norm <- function(s) {
     s %>%
@@ -903,13 +966,20 @@ find_key_by_source_and_name <- function(source_name, metric_name) {
       stringr::str_squish()
   }
   
-  hits <- cand[norm(cand_metric) == norm(metric_name)]
+  keep <- norm(cand_source) == norm(source_name) &
+    norm(cand_metric) == norm(metric_name)
+  
+  if (!is.null(test_type)) {
+    keep <- keep & norm(cand_test) == norm(test_type)
+  }
+  
+  hits <- cand[keep]
   if (length(hits) >= 1) hits[1] else NA_character_
 }
 
-find_first_existing <- function(source_name, metric_names) {
+find_first_existing <- function(source_name, metric_names, test_type = NULL) {
   for (nm in metric_names) {
-    k <- find_key_by_source_and_name(source_name, nm)
+    k <- find_key(source_name, test_type = test_type, metric_name = nm)
     if (!is.na(k)) return(k)
   }
   NA_character_
@@ -937,7 +1007,14 @@ k_maxv <- find_first_existing("Catapult", c("Max Vel", "Max Velocity", "Max V"))
 k_acc  <- find_first_existing("Catapult", c("Max Effort Acceleration", "Max Effort Accel"))
 k_dec  <- find_first_existing("Catapult", c("Max Effort Deceleration", "Max Effort Decel"))
 
-keys_needed <- c(k_jump, k_rsi, k_ebi, k_pp, k_lmf, k_rmf, k_imb, k_maxv, k_acc, k_dec)
+k_fly10 <- find_first_existing(
+  "SmartSpeed",
+  metric_names = c("Best Split Seconds"),
+  test_type = "Flying 10s"
+)
+
+
+keys_needed <- c(k_jump, k_rsi, k_ebi, k_pp, k_lmf, k_rmf, k_imb, k_maxv, k_acc, k_dec, k_fly10)
 keys_needed <- keys_needed[!is.na(keys_needed)]
 
 pcts_wide <- roster_best_percentiles_pos_long %>%
@@ -947,7 +1024,7 @@ pcts_wide <- roster_best_percentiles_pos_long %>%
 
 w <- c(
   jump = 0.125, rsi = 0.10, ebi = 0.10, pp = 0.125,
-  mf   = 0.15,  imb = 0.05, maxv = 0.20, acc = 0.075, dec = 0.075
+  mf   = 0.15,  imb = 0.05, maxv = 0.10, fly10 = 0.10, acc = 0.075, dec = 0.075
 )
 
 safe_col <- function(df, key) {
@@ -964,6 +1041,7 @@ ath <- pcts_wide %>%
     maxv = safe_col(., k_maxv),
     acc  = safe_col(., k_acc),
     dec  = safe_col(., k_dec),
+    fly10 = safe_col(., k_fly10),
     lmf  = safe_col(., k_lmf),
     rmf  = safe_col(., k_rmf),
     mf   = ifelse(
@@ -974,7 +1052,7 @@ ath <- pcts_wide %>%
     imb = safe_col(., k_imb),
     
     AthleticismScore = {
-      vs <- cbind(jump, rsi, ebi, pp, mf, imb, maxv, acc, dec)
+      vs <- cbind(jump, rsi, ebi, pp, mf, imb, maxv, fly10, acc, dec)
       colnames(vs) <- names(w)
       apply(vs, 1, function(v) {
         ok <- !is.na(v)

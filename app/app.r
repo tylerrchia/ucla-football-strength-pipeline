@@ -136,7 +136,7 @@ render_plotly_radar <- function(df_long, selected_player, title = NULL, subtitle
   
   make_closed <- function(d) {
     d <- d %>% arrange(match(axis, axis_levels))
-    bind_rows(d, d %>% slice(1))
+    bind_rows(d, d %>% dplyr::slice_head(n = 1))
   }
   
   p <- plotly::plot_ly()
@@ -223,7 +223,8 @@ ath_tooltip_text <- paste(
   "Eccentric Braking Impulse 10%",
   "Avg Max Force (L/R) 15%",
   "Max Imbalance 5% (lower is better)",
-  "Max Velocity 20%",
+  "Max Velocity 10%",
+  "Flying 10s 10%",
   "Max Effort Acceleration 7.5%",
   "Max Effort Deceleration 7.5% (lower is better)",
   "Weights re-normalize if some metrics are missing.",
@@ -278,7 +279,7 @@ pick_metric_key_by_name <- function(system_name, metric_name_target, df_keys) {
   
   hit <- cand %>%
     filter(metric_name_norm == target) %>%
-    slice(1)
+    dplyr::slice_head(n = 1)
   
   if (nrow(hit) == 0) return(NA_character_)
   hit$metric_key[1]
@@ -390,6 +391,25 @@ radar_catapult_labels <- radar_catapult_labels %>%
   mutate(radar_label = if_else(radar_label == "Total Player Load", "Recent Player Load", radar_label))
 
 
+
+smartspeed_metric_names <- c(
+  "Best Split Seconds"
+)
+
+smartspeed_metric_keys_map <- pick_best_keys_for_metric_names(
+  "SmartSpeed",
+  smartspeed_metric_names,
+  fill_summary
+)
+
+radar_smartspeed_metrics <- unname(smartspeed_metric_keys_map[!is.na(smartspeed_metric_keys_map)])
+
+radar_smartspeed_labels <- tibble::tibble(
+  metric_key = unname(smartspeed_metric_keys_map),
+  radar_label = c("Flying 10s")
+) %>% filter(!is.na(metric_key))
+
+
 # --- Pick important metrics for radar (data-driven) ---
 pick_radar_metrics <- function(fill_summary, metric_lut, n_total = 6) {
   # fill_summary: metric_key, fill_frac
@@ -462,7 +482,7 @@ metric_subcat <- function(mk) {
 get_player_pct <- function(player_id, metric_key) {
   x <- roster_percentiles_long %>%
     filter(player_id == !!player_id, metric_key == !!metric_key) %>%
-    slice(1)
+    dplyr::slice_head(n = 1)
   if (nrow(x) == 0) return(NA_real_)
   x$percentile[1]
 }
@@ -905,8 +925,8 @@ server <- function(input, output, session) {
   
   make_all_toggle("group_filter")
   make_all_toggle("pos_filter")
-  make_all_toggle("class_filter")  
-  make_all_toggle("pctl_metric")   
+  make_all_toggle("class_filter")  # optional
+  make_all_toggle("pctl_metric")   # ✅ do this too since metric is now multi
   make_all_toggle("cat_pos_filter")
   
   
@@ -974,16 +994,16 @@ server <- function(input, output, session) {
   default_roster_metrics <- c(
     "Athleticism Score",
     
-    # ForceDecks...
+    # ForceDecks
     "Athlete Standing Weight",
-    "Jump Height (Imp-Mom) in Inches",
+    "Jump Height (Imp-Mom)",
     "RSI-modified",
     "Force at Peak Power",
     "Force at Zero Velocity",
     "Eccentric Braking Impulse",
     "Concentric Impulse",
     
-    # NordBord...
+    # NordBord
     "L Max Force",
     "R Max Force",
     "Avg Max Force",
@@ -998,7 +1018,10 @@ server <- function(input, output, session) {
     "Max Effort Acceleration",
     "Max Effort Deceleration",
     "Total Player Load",
-    "Player Load per Minute"
+    "Player Load Per Minute",
+    
+    # SmartSpeed
+    "Best Split Seconds"
   )
   
   
@@ -1035,6 +1058,28 @@ server <- function(input, output, session) {
     # Always include Athleticism Score as a leading metric (if present)
     if (HAS_ATH) {
       metric_show <- unique(c(ATH_KEY, metric_show))
+    }
+    
+    # --- Identify keys for ordering ---
+    max_vel_key <- keep_roster_metrics[
+      grepl("\\|Max Vel$", keep_roster_metrics)
+    ][1]
+    
+    flying10_key <- keep_roster_metrics[
+      grepl("\\|Flying 10s\\|Best Split Seconds$", keep_roster_metrics)
+    ][1]
+    
+    # --- Force Flying 10s to appear after Max Vel ---
+    if (!is.na(max_vel_key) && !is.na(flying10_key)) {
+      metric_show <- metric_show[metric_show != flying10_key]
+      
+      pos <- match(max_vel_key, metric_show)
+      
+      if (!is.na(pos)) {
+        metric_show <- append(metric_show, flying10_key, after = pos)
+      } else {
+        metric_show <- c(metric_show, flying10_key)
+      }
     }
     
     # ---- FRONT COLUMNS: force Name, then Position, then Group/Class ----
@@ -1126,6 +1171,7 @@ server <- function(input, output, session) {
     disp_names <- gsub("Jump Height \\(Imp-Mom\\)", "Jump Height", disp_names)
     disp_names <- gsub(" in Inches", "", disp_names)
     disp_names <- gsub("Total Player Load", "Recent Player Load", disp_names)
+    disp_names <- gsub("^Best Split Seconds$", "Flying 10s", disp_names)
     
     colnames(df_disp) <- disp_names
     
@@ -1235,18 +1281,23 @@ server <- function(input, output, session) {
   }, ignoreInit = TRUE)
   
   
-  
   # ---------- Populate Performance/Trend filter dropdowns ----------
+  
   player_pid <- reactive({
     nm <- selected_player()
-    pid <- roster_view %>% filter(player_name == nm) %>% slice(1) %>% pull(player_id)
+    pid <- roster_view %>%
+      dplyr::filter(player_name == nm) %>%
+      dplyr::slice_head(n = 1) %>%
+      dplyr::pull(player_id)
+    
     req(length(pid) == 1)
     pid
   })
   
+  
   poscomp_cohort <- reactive({
     nm <- selected_player()
-    row <- roster_view %>% filter(player_name == nm) %>% slice(1)
+    row <- roster_view %>% filter(player_name == nm) %>% dplyr::slice_head(n = 1)
     req(nrow(row) == 1)
     
     scope <- input$poscomp_scope %||% "pos"
@@ -1434,7 +1485,7 @@ server <- function(input, output, session) {
   # ---------- Player banner ----------
   output$player_banner <- renderUI({
     nm <- selected_player()
-    row <- roster_view %>% filter(player_name == nm) %>% slice(1)
+    row <- roster_view %>% filter(player_name == nm) %>% dplyr::slice_head(n = 1)
     if (nrow(row) == 0) return(NULL)
     
     group_val <- if (!is.null(group_col)) row[[group_col]][1] else NA
@@ -1464,7 +1515,7 @@ server <- function(input, output, session) {
         "border:1px solid #e5e7eb;",
         "background:#f3f4f6;",
         "object-fit:cover;",
-        "object-position:50% 22%;", 
+        "object-position:50% 22%;",  # 👈 move crop upward (try 10–25%)
         "display:block;",
         "cursor:pointer;"
       )
@@ -1636,7 +1687,7 @@ server <- function(input, output, session) {
   
   output$radar_force_plot <- renderPlotly({
     nm <- selected_player()
-    pid <- roster_view %>% filter(player_name == nm) %>% slice(1) %>% pull(player_id)
+    pid <- roster_view %>% filter(player_name == nm) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
     req(length(pid) == 1)
     
     df <- roster_percentiles_long %>%
@@ -1650,7 +1701,7 @@ server <- function(input, output, session) {
   
   output$radar_nord_plot <- renderPlotly({
     nm <- selected_player()
-    pid <- roster_view %>% filter(player_name == nm) %>% slice(1) %>% pull(player_id)
+    pid <- roster_view %>% filter(player_name == nm) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
     req(length(pid) == 1)
     
     df <- roster_percentiles_long %>%
@@ -1667,7 +1718,7 @@ server <- function(input, output, session) {
   
   output$radar_catapult_plot <- renderPlotly({
     nm <- selected_player()
-    pid <- roster_view %>% filter(player_name == nm) %>% slice(1) %>% pull(player_id)
+    pid <- roster_view %>% filter(player_name == nm) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
     req(length(pid) == 1)
     
     df <- roster_percentiles_long %>%
@@ -1688,7 +1739,7 @@ server <- function(input, output, session) {
   # ---------- Quick tags ----------
   output$player_tags <- renderUI({
     nm <- selected_player()
-    pid <- roster_view %>% filter(player_name == nm) %>% slice(1) %>% pull(player_id)
+    pid <- roster_view %>% filter(player_name == nm) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
     if (length(pid) == 0) return(NULL)
     
     latest_pcts <- roster_percentiles_long %>%
@@ -1737,7 +1788,7 @@ server <- function(input, output, session) {
   
   position_group_values <- reactive({
     pid <- player_pid()
-    row <- roster_view %>% filter(player_id == pid) %>% slice(1)
+    row <- roster_view %>% filter(player_id == pid) %>% dplyr::slice_head(n = 1)
     req(nrow(row) == 1)
     
     pos_val <- if (!is.null(pos_col)) row[[pos_col]][1] else NA
@@ -1759,7 +1810,7 @@ server <- function(input, output, session) {
     df <- perf_filtered_df()
     
     # Get position group for this player
-    row <- roster_view %>% filter(player_id == pid) %>% slice(1)
+    row <- roster_view %>% filter(player_id == pid) %>% dplyr::slice_head(n = 1)
     pos_val <- if (!is.null(pos_col) && nrow(row) == 1) row[[pos_col]][1] else NA
     
     # All players in same position group
@@ -1873,7 +1924,7 @@ server <- function(input, output, session) {
   # ---------- Trend plot ----------
   output$trend_plot <- renderPlotly({
     nm <- selected_player()
-    pid <- roster_view %>% filter(player_name == nm) %>% slice(1) %>% pull(player_id)
+    pid <- roster_view %>% filter(player_name == nm) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
     if (length(pid) == 0) return(NULL)
     
     df_base <- trend_filtered_df()
@@ -1883,7 +1934,7 @@ server <- function(input, output, session) {
     }
     if (nrow(df_base) == 0) return(NULL)
     
-    mk <- df_base %>% distinct(metric_key) %>% slice(1) %>% pull(metric_key)
+    mk <- df_base %>% distinct(metric_key) %>% dplyr::slice_head(n = 1) %>% pull(metric_key)
     pretty_mk <- sub("^([^|]*\\|){2}", "", mk)
     
     df_all <- vald_tests_long_ui %>% filter(metric_key == mk)
@@ -1901,7 +1952,7 @@ server <- function(input, output, session) {
     # --- Overlay another player (optional) ---
     overlay_nm <- input$trend_overlay_player
     if (!is.null(overlay_nm) && overlay_nm != "None" && overlay_nm != nm) {
-      pid2 <- roster_view %>% filter(player_name == overlay_nm) %>% slice(1) %>% pull(player_id)
+      pid2 <- roster_view %>% filter(player_name == overlay_nm) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
       if (length(pid2) == 1) {
         df_other <- df_all %>%
           filter(player_id == pid2) %>%
@@ -1919,7 +1970,7 @@ server <- function(input, output, session) {
       # get selected player's position
       pos_val <- roster_view %>%
         filter(player_id == pid) %>%
-        slice(1) %>%
+        dplyr::slice_head(n = 1) %>%
         pull(.data[[pos_col]])
       
       if (!is.na(pos_val)) {
@@ -1949,7 +2000,7 @@ server <- function(input, output, session) {
       
       pos_val <- roster_view %>%
         filter(player_id == pid) %>%
-        slice(1) %>%
+        dplyr::slice_head(n = 1) %>%
         pull(.data[[pos_col]])
       
       if (length(pos_val) == 1 && !is.na(pos_val) && nzchar(pos_val)) {
@@ -2037,17 +2088,29 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     if (length(weight_key) == 0) weight_key <- NA_character_
     
     # Keys used in the positional comparison table:
-    keys <- unique(c(radar_force_metrics, radar_nord_metrics, radar_catapult_metrics, weight_key))
+    keys <- unique(c(
+      radar_force_metrics,
+      radar_nord_metrics,
+      radar_catapult_metrics,
+      radar_smartspeed_metrics,
+      weight_key
+    ))
     keys <- keys[!is.na(keys) & nzchar(as.character(keys))]
     if (length(keys) < 1) return(tibble::tibble())
     
     # Labels for radar metrics
-    label_df <- bind_rows(radar_force_labels, radar_nord_labels, radar_catapult_labels) %>%
+    label_df <- bind_rows(
+      radar_force_labels,
+      radar_nord_labels,
+      radar_catapult_labels,
+      radar_smartspeed_labels
+    ) %>%
       distinct(metric_key, radar_label) %>%
       mutate(
         radar_label = as.character(radar_label),
         radar_label = if_else(is.na(radar_label), as.character(metric_key), radar_label)
       )
+
     
     # --- ADD LABEL FOR WEIGHT ---
     if (!is.na(weight_key)) {
@@ -2269,7 +2332,12 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
                plotly::layout(title = "No cohort available for positional comparison"))
     }
     
-    keys <- unique(c(radar_force_metrics, radar_nord_metrics, radar_catapult_metrics))
+    keys <- unique(c(
+      radar_force_metrics,
+      radar_nord_metrics,
+      radar_catapult_metrics,
+      radar_smartspeed_metrics
+    ))
     keys <- keys[!is.na(keys) & nzchar(as.character(keys))]
     
     if (length(keys) < 3) {
@@ -2278,7 +2346,12 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     }
     
     # metric_key -> label
-    label_df <- bind_rows(radar_force_labels, radar_nord_labels, radar_catapult_labels) %>%
+    label_df <- bind_rows(
+      radar_force_labels,
+      radar_nord_labels,
+      radar_catapult_labels,
+      radar_smartspeed_labels
+    ) %>%
       distinct(metric_key, radar_label) %>%
       mutate(radar_label = as.character(radar_label))
     
@@ -2310,23 +2383,19 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     
     # Make sure every player has every axis (keeps polygons aligned)
     # ---- CUSTOM METRIC ORDER BY TEST ----
+    
     axis_order <- c(
-      # CMJ / ForceDecks
       "Jump Height (Imp-Mom)",
       "Force at Zero Velocity",
       "Force at Peak Power",
       "Concentric Impulse",
       "RSI-modified (Imp-Mom)",
       "Eccentric Braking Impulse",
-      
-      # Strength asymmetry
       "L Max Force",
       "R Max Force",
       "L Max Impulse",
       "R Max Impulse",
       "Max Imbalance",
-      
-      # GPS / Catapult
       "Recent Player Load",
       "Player Load Per Minute",
       "High Speed Distance (12 mph)",
@@ -2334,7 +2403,8 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       "Explosive Efforts",
       "Max Effort Acceleration",
       "Max Effort Deceleration",
-      "Max Vel"
+      "Max Vel",
+      "Flying 10s"
     )
     
     axis_levels <- axis_order[axis_order %in% unique(long$axis)]
@@ -2354,7 +2424,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     
     make_closed <- function(df_one, axis_levels) {
       df_one <- df_one %>% arrange(match(axis, axis_levels))
-      bind_rows(df_one, df_one %>% slice(1))
+      bind_rows(df_one, df_one %>% dplyr::slice_head(n = 1))
     }
     
     
@@ -2416,7 +2486,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
   #   nm2 <- input$compare_player
   #   req(!is.null(nm2), nzchar(nm2))
   #   
-  #   pid2 <- roster_view %>% filter(player_name == nm2) %>% slice(1) %>% pull(player_id)
+  #   pid2 <- roster_view %>% filter(player_name == nm2) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
   #   req(length(pid2) == 1)
   #   
   #   key_df <- vald_tests_long_ui %>%
@@ -2474,7 +2544,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
   #   nm2 <- input$compare_player
   #   req(!is.null(nm2), nzchar(nm2))
   #   
-  #   pid2 <- roster_view %>% filter(player_name == nm2) %>% slice(1) %>% pull(player_id)
+  #   pid2 <- roster_view %>% filter(player_name == nm2) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
   #   req(length(pid2) == 1)
   #   
   #   if (length(radar_nord_metrics) < 3) {
@@ -2512,7 +2582,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
   #   nm2 <- input$compare_player
   #   req(!is.null(nm2), nzchar(nm2))
   #   
-  #   pid2 <- roster_view %>% filter(player_name == nm2) %>% slice(1) %>% pull(player_id)
+  #   pid2 <- roster_view %>% filter(player_name == nm2) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
   #   req(length(pid2) == 1)
   #   
   #   if (length(radar_catapult_metrics) < 3) {
@@ -2550,7 +2620,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     nm2 <- input$compare_player
     req(!is.null(nm2), nzchar(nm2))
     
-    pid2 <- roster_view %>% filter(player_name == nm2) %>% slice(1) %>% pull(player_id)
+    pid2 <- roster_view %>% filter(player_name == nm2) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
     req(length(pid2) == 1)
     
     key_df <- vald_tests_long_ui %>%
@@ -2640,7 +2710,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     nm2 <- input$compare_player
     req(!is.null(nm2), nzchar(nm2))
     
-    pid2 <- roster_view %>% filter(player_name == nm2) %>% slice(1) %>% pull(player_id)
+    pid2 <- roster_view %>% filter(player_name == nm2) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
     req(length(pid2) == 1)
     
     if (length(radar_nord_metrics) < 3) {
@@ -2708,7 +2778,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     nm2 <- input$compare_player
     req(!is.null(nm2), nzchar(nm2))
     
-    pid2 <- roster_view %>% filter(player_name == nm2) %>% slice(1) %>% pull(player_id)
+    pid2 <- roster_view %>% filter(player_name == nm2) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
     req(length(pid2) == 1)
     
     if (length(radar_catapult_metrics) < 3) {
@@ -2787,7 +2857,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       hit <- df_cat %>%
         filter(stringr::str_detect(stringr::str_to_lower(metric_name), stringr::str_to_lower(pat))) %>%
         count(metric_key, sort = TRUE) %>%
-        slice(1) %>%
+        dplyr::slice_head(n = 1) %>%
         pull(metric_key)
       if (length(hit) == 1) return(hit)
     }
@@ -3066,7 +3136,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     x_key <- latest_x %>%
       filter(metric_name == input$corr_x_metric) %>%
       count(metric_key, sort = TRUE) %>%
-      slice(1) %>%
+      dplyr::slice_head(n = 1) %>%
       pull(metric_key)
     
     req(length(x_key) == 1)
@@ -3081,7 +3151,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       y_key <- latest_y %>%
         filter(metric_name == y_nm) %>%
         count(metric_key, sort = TRUE) %>%
-        slice(1) %>%
+        dplyr::slice_head(n = 1) %>%
         pull(metric_key)
       
       if (length(y_key) != 1) {
@@ -3130,7 +3200,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
     y_plot_key <- latest_y %>%
       filter(metric_name == y_plot_nm) %>%
       count(metric_key, sort = TRUE) %>%
-      slice(1) %>%
+      dplyr::slice_head(n = 1) %>%
       pull(metric_key)
     
     scatter <- tibble::tibble()
@@ -3168,7 +3238,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       geom_vline(xintercept = median(df$x, na.rm = TRUE), linetype = "dotted") +
       geom_hline(yintercept = median(df$y, na.rm = TRUE), linetype = "dotted")
     
-    # highlighted player point (drawn on top)
+    # 🔴 highlighted player point (drawn on top)
     if (!is.null(highlight_nm) && highlight_nm != "None") {
       df_hi <- df %>% filter(player_name == highlight_nm)
       
