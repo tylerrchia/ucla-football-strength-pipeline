@@ -905,8 +905,8 @@ server <- function(input, output, session) {
   
   make_all_toggle("group_filter")
   make_all_toggle("pos_filter")
-  make_all_toggle("class_filter")  # optional
-  make_all_toggle("pctl_metric")   # ✅ do this too since metric is now multi
+  make_all_toggle("class_filter")  
+  make_all_toggle("pctl_metric")   
   make_all_toggle("cat_pos_filter")
   
   
@@ -1464,7 +1464,7 @@ server <- function(input, output, session) {
         "border:1px solid #e5e7eb;",
         "background:#f3f4f6;",
         "object-fit:cover;",
-        "object-position:50% 22%;",  # 👈 move crop upward (try 10–25%)
+        "object-position:50% 22%;", 
         "display:block;",
         "cursor:pointer;"
       )
@@ -3168,7 +3168,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       geom_vline(xintercept = median(df$x, na.rm = TRUE), linetype = "dotted") +
       geom_hline(yintercept = median(df$y, na.rm = TRUE), linetype = "dotted")
     
-    # 🔴 highlighted player point (drawn on top)
+    # highlighted player point (drawn on top)
     if (!is.null(highlight_nm) && highlight_nm != "None") {
       df_hi <- df %>% filter(player_name == highlight_nm)
       
