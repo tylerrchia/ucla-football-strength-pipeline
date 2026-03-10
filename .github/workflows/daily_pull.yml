@@ -111,8 +111,8 @@ jobs:
 
   deploy:
     needs: run-vald
-    # if: needs.run-vald.outputs.data_changed == 'true'
-    if: always()
+    if: needs.run-vald.outputs.data_changed == 'true'
+    # if: always()
     runs-on: ubuntu-22.04
 
     steps:
