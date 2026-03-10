@@ -8,7 +8,7 @@ This repository contains a GitHub Actions workflow that:
 - Data is stored in a separate private repository
 
 ## Automated R Shiny App Deployment
-- Redeploys app every time one of the scripts is updated 
+- Redeploys app ______
 
 ### Environment Reproducibility
 - R version is pinned via GitHub Actions
@@ -33,3 +33,4 @@ The workflow requires the following GitHub secrets:
 - SHINYAPPS_ACCOUNT
 - SHINYAPPS_SECRET
 - SHINYAPPS_TOKEN
+- SHINYAPPS_APPNAME
