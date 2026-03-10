@@ -1,7 +1,7 @@
-name: Daily Data Pull
+name: Daily Data Pull / App Deployment
 
 permissions:
-  contents: read   # prevent writing to public repo
+  contents: read
 
 on:
   schedule:
@@ -17,6 +17,9 @@ jobs:
       R_BUILD_VIGNETTES: false
       R_CHECK_BUILD_VIGNETTES: false
       DATA_OUTPUT_DIR: data-repo/data
+
+    outputs:
+      data_changed: ${{ steps.check_changes.outputs.data_changed }}
 
     steps:
       # Checkout PUBLIC repo (code only)
@@ -49,6 +52,11 @@ jobs:
           token: ${{ secrets.DATA_REPO_PAT }}
           path: data-repo
 
+      # Snapshot RDS checksums BEFORE the pull
+      - name: Snapshot RDS checksums before pull
+        run: |
+          find data-repo/data -name "*.rds" | sort | xargs md5sum 2>/dev/null > /tmp/rds_before.txt || touch /tmp/rds_before.txt
+
       - name: Run VALD data pull
         env:
           VALD_CLIENT_ID: ${{ secrets.VALD_CLIENT_ID }}
@@ -78,6 +86,19 @@ jobs:
       - name: Convert CSVs to RDS
         run: Rscript scripts/csv_to_rds.R
 
+      # Snapshot RDS checksums AFTER the pull and compare
+      - name: Check if any RDS files changed
+        id: check_changes
+        run: |
+          find data-repo/data -name "*.rds" | sort | xargs md5sum 2>/dev/null > /tmp/rds_after.txt || touch /tmp/rds_after.txt
+          if diff -q /tmp/rds_before.txt /tmp/rds_after.txt > /dev/null 2>&1; then
+            echo "data_changed=false" >> $GITHUB_OUTPUT
+            echo "No RDS changes detected — skipping deploy."
+          else
+            echo "data_changed=true" >> $GITHUB_OUTPUT
+            echo "RDS changes detected — deploy will run."
+          fi
+
       # Commit ONLY to the private repo
       - name: Commit and push data to private repo
         run: |
@@ -87,3 +108,57 @@ jobs:
           git add data
           git commit -m "Daily VALD & Catapult data update" || echo "No changes"
           git push
+
+  deploy:
+    needs: run-vald
+    if: needs.run-vald.outputs.data_changed == 'true'
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout app repo
+        uses: actions/checkout@v4
+
+      - name: Checkout private data repo
+        uses: actions/checkout@v4
+        with:
+          repository: tylerrchia/UCLA-Football-Strength-App-DATA
+          token: ${{ secrets.DATA_REPO_PAT }}
+          path: data-repo
+
+      - name: Copy data into app/data/
+        run: |
+          mkdir -p app/data
+          cp data-repo/data/*.rds app/data/
+
+      - name: Setup R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.5.2'
+
+      - name: Restore renv
+        uses: r-lib/actions/setup-renv@v2
+
+      - name: Install rsconnect
+        run: R -e 'install.packages("rsconnect")'
+
+      - name: Deploy to shinyapps.io
+        env:
+          SHINYAPPS_ACCOUNT: ${{ secrets.SHINYAPPS_ACCOUNT }}
+          SHINYAPPS_TOKEN:   ${{ secrets.SHINYAPPS_TOKEN }}
+          SHINYAPPS_SECRET:  ${{ secrets.SHINYAPPS_SECRET }}
+          SHINYAPPS_APPNAME: ${{ secrets.SHINYAPPS_APPNAME }}
+        run: |
+          R -e '
+            rsconnect::setAccountInfo(
+              name   = Sys.getenv("SHINYAPPS_ACCOUNT"),
+              token  = Sys.getenv("SHINYAPPS_TOKEN"),
+              secret = Sys.getenv("SHINYAPPS_SECRET")
+            )
+            rsconnect::deployApp(
+              appDir        = "app",
+              appPrimaryDoc = "app_automated.r",
+              appName       = Sys.getenv("SHINYAPPS_APPNAME"),
+              forceUpdate   = TRUE,
+              launch.browser = FALSE
+            )
+          '
