@@ -888,7 +888,7 @@ server <- function(input, output, session) {
   
   # "All" behaves like a toggle (works even on first selection)
   make_all_toggle <- function(inputId) {
-    prev <- reactiveVal("All")  
+    prev <- reactiveVal("All")   
     
     observeEvent(input[[inputId]], {
       sel <- input[[inputId]] %||% character(0)
@@ -1515,7 +1515,7 @@ server <- function(input, output, session) {
         "border:1px solid #e5e7eb;",
         "background:#f3f4f6;",
         "object-fit:cover;",
-        "object-position:50% 22%;",
+        "object-position:50% 22%;", 
         "display:block;",
         "cursor:pointer;"
       )
