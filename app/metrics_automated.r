@@ -560,8 +560,6 @@ ingest_catapult <- function(path) {
 # SmartSpeed ingestion
 # ---------------------------
 
-SMART_PATH <- "smartspeed.rds"
-
 ingest_smartspeed <- function(path) {
   if (!file.exists(path)) {
     message("Warning: SmartSpeed file not found at ", path)
