@@ -60,7 +60,6 @@ jobs:
           rsconnect::deployApp(
             appDir="app",
             appPrimaryDoc="app_automated.r",
-            envVars = c("DATA_REPO_PAT"),
             forceUpdate=TRUE
           )
           '
