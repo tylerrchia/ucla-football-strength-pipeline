@@ -44,11 +44,12 @@ jobs:
           R -e 'install.packages("rsconnect")'
 
       # Deploy app
-      - name: Deploy to shinyapps.io
+       - name: Deploy to shinyapps.io
         env:
           SHINYAPPS_ACCOUNT: ${{ secrets.SHINYAPPS_ACCOUNT }}
           SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
           SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
+          DATA_REPO_PAT: ${{ secrets.DATA_REPO_PAT }}
         run: |
           R -e '
           rsconnect::setAccountInfo(
@@ -59,6 +60,7 @@ jobs:
           rsconnect::deployApp(
             appDir="app",
             appPrimaryDoc="app_automated.r",
+            envVars = c("DATA_REPO_PAT"),
             forceUpdate=TRUE
           )
           '
