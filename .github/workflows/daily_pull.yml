@@ -87,3 +87,35 @@ jobs:
           git add data
           git commit -m "Daily VALD & Catapult data update" || echo "No changes"
           git push
+
+      # ---------------------------------------------------------------
+      # Deploy Shiny app to shinyapps.io (data is already in data-repo/data/)
+      # ---------------------------------------------------------------
+      - name: Install rsconnect
+        run: Rscript -e "install.packages('rsconnect')"
+
+      - name: Copy data into app data/ folder for deployment
+        run: |
+          mkdir -p data
+          cp data-repo/data/*.rds data/
+
+      - name: Deploy to shinyapps.io
+        env:
+          SHINYAPPS_ACCOUNT: ${{ secrets.SHINYAPPS_ACCOUNT }}
+          SHINYAPPS_TOKEN:   ${{ secrets.SHINYAPPS_TOKEN }}
+          SHINYAPPS_SECRET:  ${{ secrets.SHINYAPPS_SECRET }}
+          SHINYAPPS_APPNAME: ${{ secrets.SHINYAPPS_APPNAME }}
+        run: |
+          Rscript -e "
+            rsconnect::setAccountInfo(
+              name   = Sys.getenv('SHINYAPPS_ACCOUNT'),
+              token  = Sys.getenv('SHINYAPPS_TOKEN'),
+              secret = Sys.getenv('SHINYAPPS_SECRET')
+            )
+            rsconnect::deployApp(
+              appDir      = '.',
+              appName     = Sys.getenv('SHINYAPPS_APPNAME'),
+              forceUpdate = TRUE,
+              launch.browser = FALSE
+            )
+          "
