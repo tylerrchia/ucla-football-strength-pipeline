@@ -17,16 +17,6 @@ library(ggplot2)
 library(ggrepel)
 library(plotly)
 
-if (!dir.exists("data-repo")) {
-  system(
-    paste0(
-      "git clone https://",
-      Sys.getenv("DATA_REPO_PAT"),
-      "@github.com/tylerrchia/UCLA-Football-Strength-App-DATA.git data-repo"
-    )
-  )
-}
-
 source("metrics_automated.r")
 
 # ---------------------------
