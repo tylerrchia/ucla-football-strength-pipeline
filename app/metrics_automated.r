@@ -37,7 +37,17 @@ suppressPackageStartupMessages({
 # ---------------------------
 # Config
 # ---------------------------
-DATA_DIR <- Sys.getenv("DATA_OUTPUT_DIR", unset = "data-repo/data")
+# Resolve data directory: env var > local dev path > shinyapps.io bundled path
+DATA_DIR <- Sys.getenv("DATA_OUTPUT_DIR", unset = "")
+if (!nzchar(DATA_DIR) || !dir.exists(DATA_DIR)) {
+  if (dir.exists("data-repo/data")) {
+    DATA_DIR <- "data-repo/data"
+  } else if (dir.exists("data")) {
+    DATA_DIR <- "data"
+  } else {
+    DATA_DIR <- "data-repo/data"  # fallback (will warn on missing files)
+  }
+}
 
 NORD_PATH  <- file.path(DATA_DIR, "nordbord.rds")
 FORCE_PATH <- file.path(DATA_DIR, "forcedecks.rds")
