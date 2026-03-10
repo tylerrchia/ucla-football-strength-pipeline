@@ -54,7 +54,7 @@ FORCE_PATH <- file.path(DATA_DIR, "forcedecks.rds")
 POS_PATH   <- file.path(DATA_DIR, "profiles_with_groups.rds")
 CAT_PATH   <- file.path(DATA_DIR, "catapult.rds")
 MEAS_PATH  <- file.path(DATA_DIR, "measurements.rds")
-
+SMART_PATH <- file.path(DATA_DIR, "smartspeed.rds")
 
 as_of_date <- Sys.Date()
 
