@@ -8,7 +8,7 @@ This repository contains a GitHub Actions workflow that:
 - Data is stored in a separate private repository
 
 ## Automated R Shiny App Deployment
-- Redeploys app ______
+- Redeploys app after any rds file is updated
 
 ### Environment Reproducibility
 - R version is pinned via GitHub Actions
