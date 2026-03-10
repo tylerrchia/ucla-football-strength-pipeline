@@ -44,7 +44,7 @@ jobs:
           R -e 'install.packages("rsconnect")'
 
       # Deploy app
-       - name: Deploy to shinyapps.io
+      - name: Deploy to shinyapps.io
         env:
           SHINYAPPS_ACCOUNT: ${{ secrets.SHINYAPPS_ACCOUNT }}
           SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
