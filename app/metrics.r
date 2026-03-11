@@ -42,6 +42,7 @@ FORCE_PATH <- "forcedecks.rds"
 POS_PATH   <- "profiles_with_groups.rds"
 CAT_PATH   <- "catapult.rds"
 MEAS_PATH  <- "measurements.rds"
+SMART_PATH <- "smartspeed.rds"
 
 as_of_date <- Sys.Date()
 
@@ -546,8 +547,6 @@ ingest_catapult <- function(path) {
 # ---------------------------
 # SmartSpeed ingestion
 # ---------------------------
-
-SMART_PATH <- "smartspeed.rds"
 
 ingest_smartspeed <- function(path) {
   if (!file.exists(path)) {
