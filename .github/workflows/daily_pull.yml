@@ -125,10 +125,20 @@ jobs:
           token: ${{ secrets.DATA_REPO_PAT }}
           path: data-repo
 
-      - name: Copy data into app/data/
+      - name: Copy data and images into app/
         run: |
           mkdir -p app/data
           cp data-repo/data/*.rds app/data/
+
+          # Copy headshots and body comp photos into app/www/ so Shiny serves them
+          if [ -d "data-repo/images/HEADSHOTS" ]; then
+            mkdir -p app/www/HEADSHOTS
+            cp -r data-repo/images/HEADSHOTS/. app/www/HEADSHOTS/
+          fi
+          if [ -d "data-repo/images/pics" ]; then
+            mkdir -p app/www/pics
+            cp -r data-repo/images/pics/. app/www/pics/
+          fi
 
       - name: Setup R
         uses: r-lib/actions/setup-r@v2
@@ -137,6 +147,9 @@ jobs:
 
       - name: Restore renv
         uses: r-lib/actions/setup-renv@v2
+
+      - name: Install rsconnect
+        run: R -e 'install.packages("rsconnect")'
 
       - name: Deploy to shinyapps.io
         env:
