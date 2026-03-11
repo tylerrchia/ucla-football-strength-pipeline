@@ -111,8 +111,7 @@ jobs:
 
   deploy:
     needs: run-vald
-    # if: needs.run-vald.outputs.data_changed == 'true'
-    if: always()
+    if: needs.run-vald.outputs.data_changed == 'true'
     runs-on: ubuntu-22.04
 
     steps:
@@ -138,9 +137,6 @@ jobs:
 
       - name: Restore renv
         uses: r-lib/actions/setup-renv@v2
-
-      - name: Install rsconnect
-        run: R -e 'install.packages("rsconnect")'
 
       - name: Deploy to shinyapps.io
         env:
