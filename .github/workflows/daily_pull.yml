@@ -136,13 +136,13 @@ jobs:
             mkdir -p app/www/HEADSHOTS
             cp -r data-repo/HEADSHOTS/. app/www/HEADSHOTS/
           fi
-          if [ -d "data-repo/pics/pre" ]; then
-            mkdir -p app/www/pics/pre
-            cp -r data-repo/pics/pre/. app/www/pics/pre/
+          if [ -d "data-repo/prepics" ]; then
+            mkdir -p app/www/prepics
+            cp -r data-repo/prepics/. app/www/prepics/
           fi
-          if [ -d "data-repo/pics/post" ]; then
-            mkdir -p app/www/pics/post
-            cp -r data-repo/pics/post/. app/www/pics/post/
+          if [ -d "data-repo/postpics" ]; then
+            mkdir -p app/www/postpics
+            cp -r data-repo/postpics/. app/www/postpics/
           fi
 
       - name: Setup R
