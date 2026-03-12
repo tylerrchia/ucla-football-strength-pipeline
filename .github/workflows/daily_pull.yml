@@ -130,15 +130,19 @@ jobs:
         run: |
           mkdir -p app/data
           cp data-repo/data/*.rds app/data/
-
+ 
           # Copy headshots and body comp photos into app/www/ so Shiny serves them
           if [ -d "data-repo/HEADSHOTS" ]; then
             mkdir -p app/www/HEADSHOTS
             cp -r data-repo/HEADSHOTS/. app/www/HEADSHOTS/
           fi
-          if [ -d "data-repo/pics" ]; then
-            mkdir -p app/www/pics
-            cp -r data-repo/pics/. app/www/pics/
+          if [ -d "data-repo/pics/pre" ]; then
+            mkdir -p app/www/pics/pre
+            cp -r data-repo/pics/pre/. app/www/pics/pre/
+          fi
+          if [ -d "data-repo/pics/post" ]; then
+            mkdir -p app/www/pics/post
+            cp -r data-repo/pics/post/. app/www/pics/post/
           fi
 
       - name: Setup R
