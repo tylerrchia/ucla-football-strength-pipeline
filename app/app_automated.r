@@ -91,14 +91,14 @@ find_player_photo <- function(player_name, view = c("front","side","back"),
   for (ext in exts) {
     fn <- sprintf("%s_%s.%s", slug, view, ext)
     # physical path (for existence check)
-    disk_path <- file.path("pics", fn)
-    disk_path_www <- file.path("www", "pics", fn)
+    disk_path <- file.path("prepics", fn)
+    disk_path_www <- file.path("www", "prepics", fn)
     
     if (file.exists(disk_path)) {
       return(file.path(base_url_prefix, fn)) # served via addResourcePath
     }
     if (file.exists(disk_path_www)) {
-      return(file.path("pics", fn)) # served from www/
+      return(file.path("prepics", fn)) # served from www/
     }
   }
   NA_character_
