@@ -997,7 +997,7 @@ server <- function(input, output, session) {
     # ForceDecks
     "Athlete Standing Weight",
     "Jump Height (Imp-Mom)",
-    "RSI-modified",
+    "RSI-modified (Imp-Mom)",
     "Force at Peak Power",
     "Force at Zero Velocity",
     "Eccentric Braking Impulse",
