@@ -629,7 +629,13 @@ ingest_manual_overrides <- function(path) {
     mutate(
       player_name  = fix_player_name(str_squish(as.character(name))),
       player_id    = standardize_name(player_name),
-      date         = suppressWarnings(as.Date(as.character(date))),
+      date         = {
+        d <- as.character(date)
+        parsed <- suppressWarnings(lubridate::ymd(d))
+        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::mdy(d))
+        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::dmy(d))
+        parsed
+      },
       datetime     = as.POSIXct(date),
       source       = "Lifts",
       test_type    = "Strength",
