@@ -234,7 +234,29 @@ ingest_measurements <- function(path) {
   
   meas_raw <- readRDS(path) %>%
     mutate(
-      player_name = str_squish(paste(firstName, lastName)),
+      player_name = {
+        has_name  <- "name"      %in% names(.)
+        has_first <- "firstName" %in% names(.)
+        has_last  <- "lastName"  %in% names(.)
+        if (has_name && (has_first || has_last)) {
+          str_squish(coalesce(
+            if (has_name)  name  else NA_character_,
+            if (has_first && has_last) paste(firstName, lastName)
+            else if (has_first) firstName
+            else lastName
+          ))
+        } else if (has_name) {
+          str_squish(name)
+        } else if (has_first && has_last) {
+          str_squish(paste(firstName, lastName))
+        } else if (has_first) {
+          str_squish(firstName)
+        } else if (has_last) {
+          str_squish(lastName)
+        } else {
+          stop("measurements.rds: cannot find name, firstName, or lastName column")
+        }
+      },
       player_id   = standardize_name(player_name),
       
       Group    = na_if(str_squish(as.character(Group)),    ""),
