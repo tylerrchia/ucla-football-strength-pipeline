@@ -410,6 +410,21 @@ radar_smartspeed_labels <- tibble::tibble(
 ) %>% filter(!is.na(metric_key))
 
 
+# ---------------------------
+# Lift metrics (manual overrides: Vertical Jump, Squat, Bench, Clean)
+# ---------------------------
+
+lift_metric_names <- c("Vertical Jump", "Squat", "Bench", "Clean")
+lift_metric_keys_map <- pick_best_keys_for_metric_names("Lifts", lift_metric_names, fill_summary)
+
+radar_lift_metrics <- unname(lift_metric_keys_map[!is.na(lift_metric_keys_map)])
+
+radar_lift_labels <- tibble::tibble(
+  metric_key = unname(lift_metric_keys_map),
+  radar_label = names(lift_metric_keys_map)
+) %>% filter(!is.na(metric_key))
+
+
 # --- Pick important metrics for radar (data-driven) ---
 pick_radar_metrics <- function(fill_summary, metric_lut, n_total = 6) {
   # fill_summary: metric_key, fill_frac
@@ -993,7 +1008,7 @@ server <- function(input, output, session) {
   
   default_roster_metrics <- c(
     "Athleticism Score",
-    
+
     # ForceDecks
     "Athlete Standing Weight",
     "Jump Height (Imp-Mom)",
@@ -1002,7 +1017,7 @@ server <- function(input, output, session) {
     "Force at Zero Velocity",
     "Eccentric Braking Impulse",
     "Concentric Impulse",
-    
+
     # NordBord
     "L Max Force",
     "R Max Force",
@@ -1011,7 +1026,7 @@ server <- function(input, output, session) {
     "R Max Impulse",
     "Max Imbalance",
     "Impulse Imbalance",
-    
+
     # Catapult
     "Total Distance",
     "Max Vel",
@@ -1019,9 +1034,15 @@ server <- function(input, output, session) {
     "Max Effort Deceleration",
     "Total Player Load",
     "Player Load Per Minute",
-    
+
     # SmartSpeed
-    "Best Split Seconds"
+    "Best Split Seconds",
+
+    # Manual Lifts
+    "Vertical Jump",
+    "Squat",
+    "Bench",
+    "Clean"
   )
   
   
@@ -1144,7 +1165,7 @@ server <- function(input, output, session) {
     
     df_disp <- df_disp %>%
       mutate(player_name = vapply(player_name, name_with_headshot, character(1)))
-  
+    
     
     # ---- CLEAN COLUMN NAMES FOR DISPLAY ----
     # 1) clean metric names: keep text after final |
@@ -1480,7 +1501,7 @@ server <- function(input, output, session) {
                       choices = c("None", players),
                       selected = "None")
   })
-
+  
   
   # ---------- Player banner ----------
   output$player_banner <- renderUI({
@@ -1499,6 +1520,23 @@ server <- function(input, output, session) {
     wing_val <- if ("wingspan_display" %in% names(row)) fmt_measure(row$wingspan_display) else "—"
     hand_val <- if ("hand_display"     %in% names(row)) fmt_measure(row$hand_display)     else "—"
     arm_val  <- if ("arm_display"      %in% names(row)) fmt_measure(row$arm_display)      else "—"
+
+    # Lift maxes from manual overrides
+    pid_val   <- row$player_id[1]
+    lift_df   <- vald_tests_long_ui %>%
+      filter(player_id == pid_val, source == "Lifts") %>%
+      group_by(metric_name) %>%
+      summarise(max_val = max(as.numeric(metric_value), na.rm = TRUE), .groups = "drop")
+
+    get_lift <- function(lift_nm) {
+      v <- lift_df %>% filter(metric_name == lift_nm) %>% pull(max_val)
+      if (length(v) == 0 || all(!is.finite(v))) "—" else as.character(round(v[1]))
+    }
+
+    vj_val <- get_lift("Vertical Jump")
+    sq_val <- get_lift("Squat")
+    bn_val <- get_lift("Bench")
+    cl_val <- get_lift("Clean")
     
     
     photos <- list(
@@ -1604,7 +1642,7 @@ server <- function(input, output, session) {
                 
               }
             )
-
+            
             ,
             column(
               10,
@@ -1627,6 +1665,15 @@ server <- function(input, output, session) {
                   " | Hand: ", hand_val,
                   " | Arm: ", arm_val
                 )
+              ),
+              tags$div(
+                style="color:#374151; margin-top:4px;",
+                HTML(paste0(
+                  "<b>VJ:</b> ", vj_val, "\" &nbsp;|&nbsp; ",
+                  "<b>Squat:</b> ", sq_val, " &nbsp;|&nbsp; ",
+                  "<b>Bench:</b> ", bn_val, " &nbsp;|&nbsp; ",
+                  "<b>Clean:</b> ", cl_val
+                ))
               ),
               
               tags$div(
@@ -1802,7 +1849,7 @@ server <- function(input, output, session) {
       filter(player_id %in% pos_player_ids, date <= as_of_date) %>%
       mutate(val_num = suppressWarnings(as.numeric(metric_value)))
   })
-
+  
   
   # ---------- Performance table (all tests for player with percentile lookup) ----------
   output$player_perf_table <- renderDT({
@@ -2028,29 +2075,29 @@ server <- function(input, output, session) {
         size = 2
       )
     
-if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
-
-  # always show at least a point
-  p <- p +
-    geom_point(
-      data = pos_avg,
-      aes(x = date, y = metric_value, color = Line),
-      size = 2.8
-    )
-
-  # draw dashed line only if 2+ dates
-  if (nrow(pos_avg) >= 2) {
-    p <- p +
-      geom_line(
-        data = pos_avg,
-        aes(x = date, y = metric_value, color = Line, group = Line),
-        linewidth = 1,
-        linetype = "dashed",
-        na.rm = TRUE
-      )
-  }
-}
-
+    if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
+      
+      # always show at least a point
+      p <- p +
+        geom_point(
+          data = pos_avg,
+          aes(x = date, y = metric_value, color = Line),
+          size = 2.8
+        )
+      
+      # draw dashed line only if 2+ dates
+      if (nrow(pos_avg) >= 2) {
+        p <- p +
+          geom_line(
+            data = pos_avg,
+            aes(x = date, y = metric_value, color = Line, group = Line),
+            linewidth = 1,
+            linetype = "dashed",
+            na.rm = TRUE
+          )
+      }
+    }
+    
     
     if (!is.null(pos_pts) && nrow(pos_pts) > 0) {
       p <- p +
@@ -2093,24 +2140,26 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       radar_nord_metrics,
       radar_catapult_metrics,
       radar_smartspeed_metrics,
+      radar_lift_metrics,
       weight_key
     ))
     keys <- keys[!is.na(keys) & nzchar(as.character(keys))]
     if (length(keys) < 1) return(tibble::tibble())
-    
+
     # Labels for radar metrics
     label_df <- bind_rows(
       radar_force_labels,
       radar_nord_labels,
       radar_catapult_labels,
-      radar_smartspeed_labels
+      radar_smartspeed_labels,
+      radar_lift_labels
     ) %>%
       distinct(metric_key, radar_label) %>%
       mutate(
         radar_label = as.character(radar_label),
         radar_label = if_else(is.na(radar_label), as.character(metric_key), radar_label)
       )
-
+    
     
     # --- ADD LABEL FOR WEIGHT ---
     if (!is.na(weight_key)) {
@@ -2184,7 +2233,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       filter(!is.na(raw_value))
     
     latest_vals <- bind_rows(best_vals, recent_vals)
-  
+    
     
     if (nrow(latest_vals) == 0) return(tibble::tibble())
     
@@ -2350,7 +2399,8 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
       radar_force_labels,
       radar_nord_labels,
       radar_catapult_labels,
-      radar_smartspeed_labels
+      radar_smartspeed_labels,
+      radar_lift_labels
     ) %>%
       distinct(metric_key, radar_label) %>%
       mutate(radar_label = as.character(radar_label))
@@ -2848,7 +2898,7 @@ if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
   # Catapult tab helpers
   # ---------------------------
   
-
+  
   
   cat_metric_key_for <- function(df_cat, patterns) {
     # df_cat must have: metric_key, metric_name
