@@ -232,31 +232,24 @@ ingest_measurements <- function(path) {
     ))
   }
   
-  meas_raw <- readRDS(path) %>%
+  meas_raw <- readRDS(path)
+
+  # Normalize to a single 'name' column regardless of source format
+  if (!"name" %in% names(meas_raw)) {
+    if (all(c("firstName", "lastName") %in% names(meas_raw))) {
+      meas_raw$name <- paste(meas_raw$firstName, meas_raw$lastName)
+    } else if ("firstName" %in% names(meas_raw)) {
+      meas_raw$name <- meas_raw$firstName
+    } else if ("lastName" %in% names(meas_raw)) {
+      meas_raw$name <- meas_raw$lastName
+    } else {
+      stop("measurements.rds: no name, firstName, or lastName column found")
+    }
+  }
+
+  meas_raw <- meas_raw %>%
     mutate(
-      player_name = {
-        has_name  <- "name"      %in% names(.)
-        has_first <- "firstName" %in% names(.)
-        has_last  <- "lastName"  %in% names(.)
-        if (has_name && (has_first || has_last)) {
-          str_squish(coalesce(
-            if (has_name)  name  else NA_character_,
-            if (has_first && has_last) paste(firstName, lastName)
-            else if (has_first) firstName
-            else lastName
-          ))
-        } else if (has_name) {
-          str_squish(name)
-        } else if (has_first && has_last) {
-          str_squish(paste(firstName, lastName))
-        } else if (has_first) {
-          str_squish(firstName)
-        } else if (has_last) {
-          str_squish(lastName)
-        } else {
-          stop("measurements.rds: cannot find name, firstName, or lastName column")
-        }
-      },
+      player_name = str_squish(name),
       player_id   = standardize_name(player_name),
       
       Group    = na_if(str_squish(as.character(Group)),    ""),
