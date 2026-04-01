@@ -54,7 +54,10 @@ FORCE_PATH <- file.path(DATA_DIR, "forcedecks.rds")
 POS_PATH   <- file.path(DATA_DIR, "profiles_with_groups.rds")
 CAT_PATH   <- file.path(DATA_DIR, "catapult.rds")
 MEAS_PATH  <- file.path(DATA_DIR, "measurements.rds")
-SMART_PATH <- file.path(DATA_DIR, "smartspeed.rds")
+SMART_PATH     <- file.path(DATA_DIR, "smartspeed.rds")
+OVERRIDES_PATH <- file.path(DATA_DIR, "manual_overrides.rds")
+
+OVERRIDE_TESTS <- c("Vertical Jump", "Squat", "Bench", "Clean")
 
 as_of_date <- Sys.Date()
 
@@ -603,16 +606,56 @@ ingest_smartspeed <- function(path) {
     )
 }
 
+# ---------------------------
+# Manual Overrides ingestion (Vertical Jump, Squat, Bench, Clean)
+# ---------------------------
+
+ingest_manual_overrides <- function(path) {
+  if (!file.exists(path)) {
+    message("Warning: manual_overrides.rds not found at ", path)
+    return(tibble::tibble())
+  }
+
+  raw <- readRDS(path)
+  # Normalize column names to lower-case for robustness
+  names(raw) <- tolower(names(raw))
+
+  if (!all(c("name", "date", "test", "value") %in% names(raw))) {
+    message("Warning: manual_overrides.rds missing expected columns (Name, Date, Test, Value)")
+    return(tibble::tibble())
+  }
+
+  raw %>%
+    mutate(
+      player_name  = fix_player_name(str_squish(as.character(name))),
+      player_id    = standardize_name(player_name),
+      date         = suppressWarnings(as.Date(as.character(date))),
+      datetime     = as.POSIXct(date),
+      source       = "Lifts",
+      test_type    = "Strength",
+      metric_name  = str_squish(as.character(test)),
+      metric_value = suppressWarnings(as.numeric(as.character(value))),
+      units        = case_when(
+        str_detect(metric_name, "Vertical Jump") ~ "in",
+        TRUE                                     ~ "lbs"
+      )
+    ) %>%
+    filter(!is.na(metric_value), metric_name %in% OVERRIDE_TESTS) %>%
+    select(player_id, player_name, date, datetime,
+           source, test_type, metric_name, metric_value, units)
+}
+
 # ============================================================
 # LOAD ALL DATA SOURCES
 # ============================================================
 
-nord      <- ingest_nordboard(NORD_PATH)
-force     <- ingest_forcedecks(FORCE_PATH)
-catapult  <- ingest_catapult(CAT_PATH)
+nord       <- ingest_nordboard(NORD_PATH)
+force      <- ingest_forcedecks(FORCE_PATH)
+catapult   <- ingest_catapult(CAT_PATH)
 smartspeed <- ingest_smartspeed(SMART_PATH)
+overrides  <- ingest_manual_overrides(OVERRIDES_PATH)
 
-vald_tests_long <- bind_rows(nord, force, catapult, smartspeed) %>%
+vald_tests_long <- bind_rows(nord, force, catapult, smartspeed, overrides) %>%
   mutate(
     metric_value = as.numeric(metric_value),
     metric_value = round(metric_value, 3)
@@ -785,7 +828,8 @@ force_include_keys <- c(
   "Catapult|Catapult|Explosive Efforts",
   "Catapult|Catapult|High Speed Distance (12 mph)",
   "Catapult|Catapult|Sprint Distance (16 mph)",
-  "SmartSpeed|Flying 10s|Best Split Seconds"
+  "SmartSpeed|Flying 10s|Best Split Seconds",
+  paste0("Lifts|Strength|", OVERRIDE_TESTS)
 )
 
 keep_roster_metrics <- unique(c(keep_roster_metrics, force_include_keys))
