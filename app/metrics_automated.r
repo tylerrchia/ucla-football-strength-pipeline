@@ -177,7 +177,20 @@ ingest_positions <- function(path) {
   } else {
     pos_raw <- read_csv(path, show_col_types = FALSE)
   }
-  
+
+  # Normalize to a single 'name' column regardless of source format
+  if (!"name" %in% names(pos_raw)) {
+    if (all(c("firstName", "lastName") %in% names(pos_raw))) {
+      pos_raw$name <- paste(pos_raw$firstName, pos_raw$lastName)
+    } else if ("firstName" %in% names(pos_raw)) {
+      pos_raw$name <- pos_raw$firstName
+    } else if ("lastName" %in% names(pos_raw)) {
+      pos_raw$name <- pos_raw$lastName
+    } else {
+      stop("profiles_with_groups.rds: no name, firstName, or lastName column found")
+    }
+  }
+
   pos_raw <- pos_raw %>%
     rename_with(~ case_when(
       . == "groupName"          ~ "Group",
@@ -191,7 +204,7 @@ ingest_positions <- function(path) {
   
   pos_raw <- pos_raw %>%
     mutate(
-      player_name = str_squish(coalesce(name, paste(firstName, lastName))),
+      player_name = str_squish(name),
       player_id   = standardize_name(player_name),
       Group       = na_if(str_squish(as.character(Group)), ""),
       Position    = na_if(str_squish(as.character(Position)), ""),
