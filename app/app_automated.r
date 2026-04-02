@@ -1008,7 +1008,7 @@ server <- function(input, output, session) {
   
   default_roster_metrics <- c(
     "Athleticism Score",
-
+    
     # ForceDecks
     "Athlete Standing Weight",
     "Jump Height (Imp-Mom)",
@@ -1017,7 +1017,7 @@ server <- function(input, output, session) {
     "Force at Zero Velocity",
     "Eccentric Braking Impulse",
     "Concentric Impulse",
-
+    
     # NordBord
     "L Max Force",
     "R Max Force",
@@ -1026,7 +1026,7 @@ server <- function(input, output, session) {
     "R Max Impulse",
     "Max Imbalance",
     "Impulse Imbalance",
-
+    
     # Catapult
     "Total Distance",
     "Max Vel",
@@ -1034,10 +1034,10 @@ server <- function(input, output, session) {
     "Max Effort Deceleration",
     "Total Player Load",
     "Player Load Per Minute",
-
+    
     # SmartSpeed
     "Best Split Seconds",
-
+    
     # Manual Lifts
     "Vertical Jump",
     "Squat",
@@ -1520,19 +1520,19 @@ server <- function(input, output, session) {
     wing_val <- if ("wingspan_display" %in% names(row)) fmt_measure(row$wingspan_display) else "—"
     hand_val <- if ("hand_display"     %in% names(row)) fmt_measure(row$hand_display)     else "—"
     arm_val  <- if ("arm_display"      %in% names(row)) fmt_measure(row$arm_display)      else "—"
-
+    
     # Lift maxes from manual overrides
     pid_val   <- row$player_id[1]
     lift_df   <- vald_tests_long_ui %>%
       filter(player_id == pid_val, source == "Lifts") %>%
       group_by(metric_name) %>%
       summarise(max_val = max(as.numeric(metric_value), na.rm = TRUE), .groups = "drop")
-
+    
     get_lift <- function(lift_nm) {
       v <- lift_df %>% filter(metric_name == lift_nm) %>% pull(max_val)
       if (length(v) == 0 || all(!is.finite(v))) "—" else as.character(round(v[1]))
     }
-
+    
     vj_val <- get_lift("Vertical Jump")
     sq_val <- get_lift("Squat")
     bn_val <- get_lift("Bench")
@@ -2145,7 +2145,7 @@ server <- function(input, output, session) {
     ))
     keys <- keys[!is.na(keys) & nzchar(as.character(keys))]
     if (length(keys) < 1) return(tibble::tibble())
-
+    
     # Labels for radar metrics
     label_df <- bind_rows(
       radar_force_labels,
