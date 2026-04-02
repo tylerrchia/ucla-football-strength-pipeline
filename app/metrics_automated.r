@@ -614,7 +614,9 @@ ingest_smartspeed <- function(path) {
           parsed
         }
       } else if ("testDateUtc" %in% names(.)) {
-        as.Date(testDateUtc)
+        parsed <- suppressWarnings(lubridate::ymd_hms(testDateUtc))
+        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::ymd(testDateUtc))
+        as.Date(parsed)
       } else {
         as.Date(NA)
       },
