@@ -177,7 +177,20 @@ ingest_positions <- function(path) {
   } else {
     pos_raw <- read_csv(path, show_col_types = FALSE)
   }
-  
+
+  # Normalize to a single 'name' column regardless of source format
+  if (!"name" %in% names(pos_raw)) {
+    if (all(c("firstName", "lastName") %in% names(pos_raw))) {
+      pos_raw$name <- paste(pos_raw$firstName, pos_raw$lastName)
+    } else if ("firstName" %in% names(pos_raw)) {
+      pos_raw$name <- pos_raw$firstName
+    } else if ("lastName" %in% names(pos_raw)) {
+      pos_raw$name <- pos_raw$lastName
+    } else {
+      stop("profiles_with_groups.rds: no name, firstName, or lastName column found")
+    }
+  }
+
   pos_raw <- pos_raw %>%
     rename_with(~ case_when(
       . == "groupName"          ~ "Group",
@@ -188,10 +201,10 @@ ingest_positions <- function(path) {
       tolower(.) == "lastname"  ~ "lastName",
       TRUE ~ .
     ))
-  
+
   pos_raw <- pos_raw %>%
     mutate(
-      player_name = str_squish(coalesce(name, paste(firstName, lastName))),
+      player_name = str_squish(name),
       player_id   = standardize_name(player_name),
       Group       = na_if(str_squish(as.character(Group)), ""),
       Position    = na_if(str_squish(as.character(Position)), ""),
@@ -232,9 +245,24 @@ ingest_measurements <- function(path) {
     ))
   }
   
-  meas_raw <- readRDS(path) %>%
+  meas_raw <- readRDS(path)
+
+  # Normalize to a single 'name' column regardless of source format
+  if (!"name" %in% names(meas_raw)) {
+    if (all(c("firstName", "lastName") %in% names(meas_raw))) {
+      meas_raw$name <- paste(meas_raw$firstName, meas_raw$lastName)
+    } else if ("firstName" %in% names(meas_raw)) {
+      meas_raw$name <- meas_raw$firstName
+    } else if ("lastName" %in% names(meas_raw)) {
+      meas_raw$name <- meas_raw$lastName
+    } else {
+      stop("measurements.rds: no name, firstName, or lastName column found")
+    }
+  }
+
+  meas_raw <- meas_raw %>%
     mutate(
-      player_name = str_squish(paste(firstName, lastName)),
+      player_name = str_squish(name),
       player_id   = standardize_name(player_name),
       
       Group    = na_if(str_squish(as.character(Group)),    ""),
@@ -615,21 +643,27 @@ ingest_manual_overrides <- function(path) {
     message("Warning: manual_overrides.rds not found at ", path)
     return(tibble::tibble())
   }
-
+  
   raw <- readRDS(path)
   # Normalize column names to lower-case for robustness
   names(raw) <- tolower(names(raw))
-
+  
   if (!all(c("name", "date", "test", "value") %in% names(raw))) {
     message("Warning: manual_overrides.rds missing expected columns (Name, Date, Test, Value)")
     return(tibble::tibble())
   }
-
+  
   raw %>%
     mutate(
       player_name  = fix_player_name(str_squish(as.character(name))),
       player_id    = standardize_name(player_name),
-      date         = suppressWarnings(as.Date(as.character(date))),
+      date         = {
+        d <- as.character(date)
+        parsed <- suppressWarnings(lubridate::ymd(d))
+        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::mdy(d))
+        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::dmy(d))
+        parsed
+      },
       datetime     = as.POSIXct(date),
       source       = "Lifts",
       test_type    = "Strength",
