@@ -15,6 +15,21 @@ os.makedirs(output_dir, exist_ok=True)
 profiles_path = os.path.join(output_dir, "profiles_with_groups.csv")
 profiles = pd.read_csv(profiles_path)
 
+# normalize column names to lowercase to handle any casing inconsistencies
+profiles.columns = profiles.columns.str.strip().str.lower()
+
+# guard: fail early with a clear message if expected columns are missing
+required_cols = {'profileid', 'name'}
+missing = required_cols - set(profiles.columns)
+if missing:
+    raise ValueError(
+        f"profiles_with_groups.csv is missing expected columns: {missing}. "
+        f"Found: {list(profiles.columns)}"
+    )
+
+# rename to match expected casing used throughout the script
+profiles = profiles.rename(columns={'profileid': 'profileId'})
+
 # --------------------------------------------------------------------------------------------------
 
 token_cache = {
@@ -112,6 +127,11 @@ def pull_last_7_days_tests(team_id: str) -> pd.DataFrame:
     return pd.DataFrame(all_data)
 
 df = pull_last_7_days_tests(team_id)
+
+# exit early if no new data
+if df.empty:
+    print("No new tests in the last 7 days. Exiting.")
+    exit(0)
 
 # if column is string, convert to dict
 df['runningSummaryFields'] = df['runningSummaryFields'].apply(
