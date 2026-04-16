@@ -55,11 +55,11 @@ activities <- activities %>%
 #   )
 # })
 
-# pull last 3 activities
+# pull last 10 activities -- JUST FOR NOW TO GET OLD DATA
 activities_recent <- activities %>%
   mutate(modified_at = ymd_hms(modified_at, tz = "UTC")) %>%
   arrange(desc(modified_at)) %>%
-  slice(1:3)
+  slice(1:10)
 
 catapult_append <- map_dfr(activities_recent$id, function(act_id) {
   ofCloudGetStatistics(
@@ -110,6 +110,7 @@ if (file.exists(catapult_path)) {
       athlete_name,
       date,
       activity_name,
+      period_name,
       .keep_all = TRUE
     )
 } else {
