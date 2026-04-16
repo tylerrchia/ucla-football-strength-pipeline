@@ -421,7 +421,11 @@ ui <- navbarPage(
   id = "main_nav",
   header = tagList(
     tags$link(rel="stylesheet", href="ucla.css"),
-    tags$link(rel="icon", type="image/x-icon", href="favicon_v2.ico")
+    tags$link(rel="icon", type="image/x-icon", href="favicon_v2.ico"),
+    tags$style(HTML("
+    :-webkit-full-screen .plotly { height: 100vh !important; }
+    :fullscreen .plotly { height: 100vh !important; }
+  "))
   ),
 
   # ============== Page 1: Roster Explorer ==============
@@ -588,7 +592,7 @@ ui <- navbarPage(
         # Row 1: ACWR (full width – most important, show first)
         fluidRow(
           column(12,
-                 div(style = "position:relative;",
+                 div(style = "position:relative; max-width:900px; margin:0 auto;",
                      tags$button("⛶", 
                                  onclick = "var el=this.parentElement; if(!document.fullscreenElement){el.requestFullscreen();}else{document.exitFullscreen();}",
                                  style = "position:absolute;top:4px;right:4px;z-index:999;background:rgba(255,255,255,0.85);border:1px solid #ccc;border-radius:4px;padding:2px 8px;font-size:16px;cursor:pointer;"
