@@ -587,7 +587,15 @@ ui <- navbarPage(
       mainPanel(
         # Row 1: ACWR (full width – most important, show first)
         fluidRow(
-          column(12, plotlyOutput("cat_plot_acwr", height = 340))
+          column(12,
+                 div(style = "position:relative;",
+                     tags$button("⛶", 
+                                 onclick = "var el=this.parentElement; if(!document.fullscreenElement){el.requestFullscreen();}else{document.exitFullscreen();}",
+                                 style = "position:absolute;top:4px;right:4px;z-index:999;background:rgba(255,255,255,0.85);border:1px solid #ccc;border-radius:4px;padding:2px 8px;font-size:16px;cursor:pointer;"
+                     ),
+                     plotlyOutput("cat_plot_acwr", height = 340)
+                 )
+          )
         ),
         # Row 2
         fluidRow(
