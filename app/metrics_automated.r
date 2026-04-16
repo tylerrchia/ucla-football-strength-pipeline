@@ -1116,30 +1116,17 @@ acwr_raw <- catapult_tests_long %>%
   filter(metric_name == "Total Player Load") %>%
   mutate(val_num = suppressWarnings(as.numeric(metric_value)))
 
-# Minimum session thresholds before ACWR is considered meaningful.
-# Players below either threshold will show NA rather than a misleading ratio.
-ACWR_MIN_ACUTE_SESSIONS   <- 2L   # need at least 2 sessions in last 7 days
-ACWR_MIN_CHRONIC_SESSIONS <- 4L   # need at least 4 sessions in last 28 days
-
 acwr_per_player <- acwr_raw %>%
   group_by(player_id, player_name) %>%
   summarise(
-    # load sums
-    acute          = sum(val_num[date >= (as_of_date - 6)  & date <= as_of_date], na.rm = TRUE),
-    chronic_total  = sum(val_num[date >= (as_of_date - 27) & date <= as_of_date], na.rm = TRUE),
-    chronic        = chronic_total / 4,
-    # session counts (distinct training days)
-    n_acute        = n_distinct(date[date >= (as_of_date - 6)  & date <= as_of_date & !is.na(val_num)]),
-    n_chronic      = n_distinct(date[date >= (as_of_date - 27) & date <= as_of_date & !is.na(val_num)]),
+    acute   = sum(val_num[date >= (as_of_date - 6)  & date <= as_of_date], na.rm = TRUE),
+    chronic = sum(val_num[date >= (as_of_date - 27) & date <= as_of_date], na.rm = TRUE) / 4,
     .groups = "drop"
   ) %>%
   mutate(
-    acwr_value = dplyr::case_when(
-      n_acute   < ACWR_MIN_ACUTE_SESSIONS   ~ NA_real_,  # too few recent sessions
-      n_chronic < ACWR_MIN_CHRONIC_SESSIONS ~ NA_real_,  # too little history
-      chronic   <= 0 | !is.finite(chronic)  ~ NA_real_,  # no chronic load at all
-      TRUE ~ round(acute / chronic, 2)
-    )
+    acwr_value = if_else(chronic > 0 & is.finite(chronic),
+                         round(acute / chronic, 2),
+                         NA_real_)
   ) %>%
   filter(!is.na(acwr_value), is.finite(acwr_value))
 
@@ -1167,6 +1154,4 @@ message("  roster metrics kept:   ", length(keep_roster_metrics),
 message("  roster_view:           ", nrow(roster_view),       " rows")
 message("  roster_best_view:      ", nrow(roster_best_view),  " rows")
 message("  roster_percentiles_*:  computed for kept roster metrics")
-message("  ACWR computed for:     ", nrow(acwr_per_player), " players",
-        " (min ", ACWR_MIN_ACUTE_SESSIONS, " acute sessions, ",
-        ACWR_MIN_CHRONIC_SESSIONS, " chronic sessions required)")
+message("  ACWR computed for:     ", nrow(acwr_per_player), " players")
