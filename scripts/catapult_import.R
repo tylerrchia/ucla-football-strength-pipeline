@@ -55,11 +55,11 @@ activities <- activities %>%
 #   )
 # })
 
-# pull last 10 activities -- JUST FOR NOW TO GET OLD DATA
+# pull last 3 activities
 activities_recent <- activities %>%
   mutate(modified_at = ymd_hms(modified_at, tz = "UTC")) %>%
   arrange(desc(modified_at)) %>%
-  slice(1:10)
+  slice(1:3)
 
 catapult_append <- map_dfr(activities_recent$id, function(act_id) {
   ofCloudGetStatistics(
