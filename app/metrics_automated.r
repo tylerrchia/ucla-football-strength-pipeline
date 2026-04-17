@@ -746,10 +746,12 @@ vald_tests_long_ui <- vald_tests_long %>%
   mutate(metric_key = paste(source, test_type, metric_name, sep = "|"))
 
 # ============================================================
-# ForceFrame recalculated ratio (all-time best per player)
+# ForceFrame recalculated ratio and asymmetry (all-time best per player)
 # ============================================================
 forceframe_ratio_key <- "ForceFrame|ForceFrame|Abduction to Adduction Ratio (Recalc)"
+forceframe_asym_key  <- "ForceFrame|ForceFrame|Abduction-Adduction Asymmetry (%)"
 
+# Ensure force_include_keys exists (we added it earlier in Config)
 if (any(vald_tests_long_ui$source == "ForceFrame")) {
   ff_data <- vald_tests_long_ui %>%
     filter(source == "ForceFrame", metric_name %in% c("Max Adduction Force", "Max Abduction Force"))
@@ -759,19 +761,22 @@ if (any(vald_tests_long_ui$source == "ForceFrame")) {
       group_by(player_id, player_name, metric_name) %>%
       summarise(max_val = max(metric_value, na.rm = TRUE), .groups = "drop") %>%
       pivot_wider(names_from = metric_name, values_from = max_val) %>%
-      # Protection: require both forces to be present and positive
       mutate(
         `Max Abduction Force` = if_else(`Max Abduction Force` > 0, `Max Abduction Force`, NA_real_),
         `Max Adduction Force` = if_else(`Max Adduction Force` > 0, `Max Adduction Force`, NA_real_)
       ) %>%
       filter(!is.na(`Max Abduction Force`), !is.na(`Max Adduction Force`)) %>%
       mutate(
-        `Abduction to Adduction Ratio (Recalc)` = `Max Abduction Force` / `Max Adduction Force`
+        `Abduction to Adduction Ratio (Recalc)` = `Max Abduction Force` / `Max Adduction Force`,
+        # Asymmetry: (stronger - weaker) / average * 100
+        avg = (`Max Abduction Force` + `Max Adduction Force`) / 2,
+        asym = abs(`Max Abduction Force` - `Max Adduction Force`) / avg * 100,
+        `Abduction-Adduction Asymmetry (%)` = round(asym, 1)
       ) %>%
       filter(is.finite(`Abduction to Adduction Ratio (Recalc)`))
     
     if (nrow(player_max_forces) > 0) {
-      # Append the recalculated ratio as a new metric row for each player (date = as_of_date)
+      # Append the recalculated ratio as new metric rows
       ratio_rows <- player_max_forces %>%
         transmute(
           player_id, player_name,
@@ -788,15 +793,35 @@ if (any(vald_tests_long_ui$source == "ForceFrame")) {
           wingspan_display = NA_character_, hand_display = NA_character_, arm_display = NA_character_
         )
       
-      vald_tests_long_ui <- bind_rows(vald_tests_long_ui, ratio_rows)
+      asym_rows <- player_max_forces %>%
+        transmute(
+          player_id, player_name,
+          date = as_of_date,
+          datetime = as.POSIXct(as_of_date),
+          source = "ForceFrame",
+          test_type = "ForceFrame",
+          metric_name = "Abduction-Adduction Asymmetry (%)",
+          metric_value = `Abduction-Adduction Asymmetry (%)`,
+          units = "%",
+          pos_group = NA_character_, pos_position = NA_character_, pos_year = NA_integer_,
+          class_year = NA_character_, class_year_base = NA_character_, is_redshirt = NA_character_,
+          height_display = NA_character_, weight_display = NA_character_,
+          wingspan_display = NA_character_, hand_display = NA_character_, arm_display = NA_character_
+        )
       
-      # Also add the recalculated key to force_include_keys so it stays in roster view
-      force_include_keys <- c(force_include_keys, forceframe_ratio_key)
-    } else {
-      message("ForceFrame ratio could not be computed: no players with both positive forces.")
+      vald_tests_long_ui <- bind_rows(vald_tests_long_ui, ratio_rows, asym_rows)
+      
+      # Force include the raw max forces, ratio, and asymmetry
+      force_include_keys <- c(
+        force_include_keys,
+        "ForceFrame|ForceFrame|Max Adduction Force",
+        "ForceFrame|ForceFrame|Max Abduction Force",
+        forceframe_ratio_key,
+        forceframe_asym_key
+      )
     }
   }
-}                       
+}
                                     
 # ============================================================
 # BEST and LATEST per player x metric_key (as-of)
