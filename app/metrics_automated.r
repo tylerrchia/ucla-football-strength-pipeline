@@ -63,6 +63,7 @@ OVERRIDE_TESTS <- c("Vertical Jump", "Squat", "Bench", "Clean")
 as_of_date <- Sys.Date()
 
 filled_threshold <- 0.25
+force_include_keys <- character(0)
 
 # ---------------------------
 # Helpers
