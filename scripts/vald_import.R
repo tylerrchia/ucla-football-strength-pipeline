@@ -258,7 +258,7 @@ if (is.null(forceframe_tests) || nrow(forceframe_tests) == 0) {
       date = format(ymd_hms(testDateUtc, tz = "UTC"), "%m/%d/%Y"),
       maxOuterForce = outerRightMaxForce + outerLeftMaxForce,
       maxInnerForce = innerRightMaxForce + innerLeftMaxForce,
-      AB_AD_ratio = maxOuterForce / maxInnerForce
+      AB_AD_ratio = maxInnerForce / maxOuterForce
     )
 }
 # -------------------------------------------------------------------------------
