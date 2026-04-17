@@ -902,18 +902,18 @@ server <- function(input, output, session) {
     }
 
     # Ratio conditional formatting (orange if <0.8 or >1.0)
-    ratio_disp_name <- "Abduction to Adduction Ratio (Recalc)"
-    if (ratio_disp_name %in% names(df_disp)) {
+    ratio_col_name <- "Abduction to Adduction Ratio (Recalc)"
+    if (ratio_col_name %in% names(df_disp)) {
       dt <- dt %>%
         DT::formatStyle(
-          ratio_disp_name,
+          ratio_col_name,
           backgroundColor = DT::styleInterval(
             cuts = c(0.8, 1.0),
             values = c("#FFD6A5", "white", "#FFD6A5")   # orange
           )
         )
-    }
-
+    }  
+      
     dt
   })
 
