@@ -806,7 +806,9 @@ server <- function(input, output, session) {
     )
     priority_metrics <- priority_metrics[!is.na(priority_metrics)]
     rest_metrics     <- setdiff(metric_show, priority_metrics)
-    cols             <- unique(c(front, priority_metrics, rest_metrics))
+    ff_metrics <- rest_metrics[startsWith(rest_metrics, "ForceFrame|")]
+    other_metrics <- setdiff(rest_metrics, ff_metrics)
+    cols <- unique(c(front, priority_metrics, other_metrics, ff_metrics))
 
     df_disp <- df %>% dplyr::select(dplyr::any_of(cols))
 
@@ -833,7 +835,8 @@ server <- function(input, output, session) {
       pos_position    = "Position",
       pos_group       = "Position Group",
       class_year_base = "Class Year",
-      class_year      = "Class Year"
+      class_year      = "Class Year",
+      `Max Imbalance` = "Nordbord Max Asymmetry"
     )
     disp_names <- gsub("Jump Height \\(Imp-Mom\\) in Inches", "Jump Height", disp_names)
     disp_names <- gsub("Jump Height \\(Imp-Mom\\)",           "Jump Height", disp_names)
@@ -899,17 +902,17 @@ server <- function(input, output, session) {
     }
 
     # Ratio conditional formatting (orange if <0.8 or >1.0)
-    ratio_col_name <- "Abduction to Adduction Ratio (Recalc)"
-    if (ratio_col_name %in% names(df_disp)) {
+    ratio_disp_name <- "Abduction to Adduction Ratio (Recalc)"
+    if (ratio_disp_name %in% names(df_disp)) {
       dt <- dt %>%
         DT::formatStyle(
-          ratio_col_name,
+          ratio_disp_name,
           backgroundColor = DT::styleInterval(
             cuts = c(0.8, 1.0),
             values = c("#FFD6A5", "white", "#FFD6A5")   # orange
           )
         )
-    }  
+    }
 
     dt
   })
