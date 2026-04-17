@@ -12,7 +12,8 @@ files <- c(
   "nordbord",
   "catapult",
   "manual_overrides",
-  "smartspeed"
+  "smartspeed",
+  "forceframe"
 )
 
 # -------------------------------------------------------------------------------
