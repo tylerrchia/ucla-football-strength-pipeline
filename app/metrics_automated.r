@@ -758,34 +758,44 @@ if (any(vald_tests_long_ui$source == "ForceFrame")) {
       group_by(player_id, player_name, metric_name) %>%
       summarise(max_val = max(metric_value, na.rm = TRUE), .groups = "drop") %>%
       pivot_wider(names_from = metric_name, values_from = max_val) %>%
+      # Protection: require both forces to be present and positive
+      mutate(
+        `Max Abduction Force` = if_else(`Max Abduction Force` > 0, `Max Abduction Force`, NA_real_),
+        `Max Adduction Force` = if_else(`Max Adduction Force` > 0, `Max Adduction Force`, NA_real_)
+      ) %>%
+      filter(!is.na(`Max Abduction Force`), !is.na(`Max Adduction Force`)) %>%
       mutate(
         `Abduction to Adduction Ratio (Recalc)` = `Max Abduction Force` / `Max Adduction Force`
       ) %>%
-      filter(!is.na(`Abduction to Adduction Ratio (Recalc)`))
+      filter(is.finite(`Abduction to Adduction Ratio (Recalc)`))
     
-    # Append the recalculated ratio as a new metric row for each player (date = as_of_date)
-    ratio_rows <- player_max_forces %>%
-      transmute(
-        player_id, player_name,
-        date = as_of_date,
-        datetime = as.POSIXct(as_of_date),
-        source = "ForceFrame",
-        test_type = "ForceFrame",
-        metric_name = "Abduction to Adduction Ratio (Recalc)",
-        metric_value = `Abduction to Adduction Ratio (Recalc)`,
-        units = "ratio",
-        pos_group = NA_character_, pos_position = NA_character_, pos_year = NA_integer_,
-        class_year = NA_character_, class_year_base = NA_character_, is_redshirt = NA_character_,
-        height_display = NA_character_, weight_display = NA_character_,
-        wingspan_display = NA_character_, hand_display = NA_character_, arm_display = NA_character_
-      )
-    
-    vald_tests_long_ui <- bind_rows(vald_tests_long_ui, ratio_rows)
-    
-    # Also add the recalculated key to keep_roster_metrics later, after fill_summary is computed
-    force_include_keys <- c(force_include_keys, forceframe_ratio_key)
+    if (nrow(player_max_forces) > 0) {
+      # Append the recalculated ratio as a new metric row for each player (date = as_of_date)
+      ratio_rows <- player_max_forces %>%
+        transmute(
+          player_id, player_name,
+          date = as_of_date,
+          datetime = as.POSIXct(as_of_date),
+          source = "ForceFrame",
+          test_type = "ForceFrame",
+          metric_name = "Abduction to Adduction Ratio (Recalc)",
+          metric_value = `Abduction to Adduction Ratio (Recalc)`,
+          units = "ratio",
+          pos_group = NA_character_, pos_position = NA_character_, pos_year = NA_integer_,
+          class_year = NA_character_, class_year_base = NA_character_, is_redshirt = NA_character_,
+          height_display = NA_character_, weight_display = NA_character_,
+          wingspan_display = NA_character_, hand_display = NA_character_, arm_display = NA_character_
+        )
+      
+      vald_tests_long_ui <- bind_rows(vald_tests_long_ui, ratio_rows)
+      
+      # Also add the recalculated key to force_include_keys so it stays in roster view
+      force_include_keys <- c(force_include_keys, forceframe_ratio_key)
+    } else {
+      message("ForceFrame ratio could not be computed: no players with both positive forces.")
+    }
   }
-}                                    
+}                       
                                     
 # ============================================================
 # BEST and LATEST per player x metric_key (as-of)
