@@ -746,7 +746,8 @@ server <- function(input, output, session) {
     "Total Distance", "Max Vel", "Max Effort Acceleration", "Max Effort Deceleration",
     "Total Player Load", "Player Load Per Minute", "ACWR",
     "Best Split Seconds",
-    "Vertical Jump", "Squat", "Bench", "Clean"
+    "Vertical Jump", "Squat", "Bench", "Clean",
+    "Abduction to Adduction Ratio"
   )
 
   output$roster_table <- renderDT({
@@ -851,9 +852,11 @@ server <- function(input, output, session) {
       escape    = FALSE,
       rownames  = FALSE,
       selection = "single",
+      extensions = 'FixedColumns',
       options   = list(
         pageLength      = 50,
         scrollX         = TRUE,
+        fixedColumns    = list(leftColumns = 1),
         searchHighlight = TRUE,
         columnDefs      = list(list(targets = 0, className = "dt-nowrap")),
         order = if ("Athleticism Score" %in% names(df_disp)) {
@@ -894,6 +897,19 @@ server <- function(input, output, session) {
           fontWeight = "bold"
         )
     }
+
+    # Ratio conditional formatting (orange if <0.8 or >1.0)
+    ratio_col_name <- "Abduction to Adduction Ratio (Recalc)"
+    if (ratio_col_name %in% names(df_disp)) {
+      dt <- dt %>%
+        DT::formatStyle(
+          ratio_col_name,
+          backgroundColor = DT::styleInterval(
+            cuts = c(0.8, 1.0),
+            values = c("#FFD6A5", "white", "#FFD6A5")   # orange
+          )
+        )
+    }  
 
     dt
   })
