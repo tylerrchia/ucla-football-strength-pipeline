@@ -241,9 +241,26 @@ if (is.null(nordbord_tests) || nrow(nordbord_tests) == 0) {
 }
 # -------------------------------------------------------------------------------
 # pull forceframe tests
-# forceframe_raw <- get_forceframe_data()
-# forceframe_profiles <- forceframe_raw$profiles
-# forceframe_tests <- forceframe_raw$tests
+forceframe_raw <- get_forceframe_data()
+forceframe_profiles <- forceframe_raw$profiles
+forceframe_tests <- forceframe_raw$tests
+
+if (is.null(forceframe_tests) || nrow(forceframe_tests) == 0) {
+  message("No new Nordbord tests found. Skipping Nordbord processing.")
+} else {
+  forceframe_FINAL <- forceframe_tests %>%
+    # join to get profile data
+    semi_join(profiles_with_groups, by = "profileId") %>%  # FILTER to team only
+    left_join(profiles_with_groups, by = "profileId") %>%  # ADD group/position
+    # filter for specific abduction / adduction tests
+    filter(testPositionName == "Hip AD/AB - 45") %>% 
+    mutate(
+      date = format(ymd_hms(testDateUtc, tz = "UTC"), "%m/%d/%Y"),
+      maxOuterForce = outerRightMaxForce + outerLeftMaxForce,
+      maxInnerForce = innerRightMaxForce + innerLeftMaxForce,
+      AB_AD_ratio = maxOuterForce / maxInnerForce
+    )
+}
 # -------------------------------------------------------------------------------
 
 # APPENDING TO DATA FOLDER
