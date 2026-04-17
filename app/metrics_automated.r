@@ -56,6 +56,7 @@ CAT_PATH       <- file.path(DATA_DIR, "catapult.rds")
 MEAS_PATH      <- file.path(DATA_DIR, "measurements.rds")
 SMART_PATH     <- file.path(DATA_DIR, "smartspeed.rds")
 OVERRIDES_PATH <- file.path(DATA_DIR, "manual_overrides.rds")
+FORCEFRAME_PATH <- file.path(DATA_DIR, "forceframe.rds")
 
 OVERRIDE_TESTS <- c("Vertical Jump", "Squat", "Bench", "Clean")
 
@@ -581,6 +582,71 @@ ingest_smartspeed <- function(path) {
 }
 
 # ---------------------------
+# ForceFrame ingestion
+# ---------------------------
+ingest_forceframe <- function(path) {
+  if (!file.exists(path)) {
+    message("Warning: ForceFrame file not found at ", path)
+    return(tibble::tibble())
+  }
+  if (grepl("\\.rds$", path, ignore.case = TRUE)) {
+    raw <- readRDS(path)
+  } else {
+    raw <- read_csv(path, show_col_types = FALSE)
+  }
+  
+  raw <- raw %>%
+    mutate(
+      date = if (inherits(date, "Date")) date else {
+        parsed <- suppressWarnings(lubridate::ymd(date))
+        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::mdy(date))
+        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::dmy(date))
+        parsed
+      },
+      datetime    = as.POSIXct(date),
+      player_name = fix_player_name(str_squish(coalesce(name, paste(firstName, lastName)))),
+      player_id   = standardize_name(player_name),
+      source      = "ForceFrame",
+      test_type   = coalesce(testTypeName, "ForceFrame")
+    )
+  
+  id_cols <- c("player_id", "player_name", "date", "datetime", "source", "test_type")
+  metric_cols <- intersect(
+    c("maxInnerForce", "maxOuterForce", "AB_AD_ratio"),
+    names(raw)
+  )
+  if (length(metric_cols) == 0) {
+    message("Warning: No ForceFrame metric columns found")
+    return(tibble::tibble())
+  }
+  
+  raw %>%
+    select(any_of(c(id_cols, metric_cols))) %>%
+    pivot_longer(
+      cols             = all_of(metric_cols),
+      names_to         = "metric_raw",
+      values_to        = "metric_value_raw",
+      values_transform = list(metric_value_raw = as.character)
+    ) %>%
+    mutate(
+      metric_name = case_when(
+        metric_raw == "maxInnerForce" ~ "Max Adduction Force",
+        metric_raw == "maxOuterForce" ~ "Max Abduction Force",
+        metric_raw == "AB_AD_ratio"   ~ "Abduction to Adduction Ratio",
+        TRUE ~ metric_raw
+      ),
+      units = case_when(
+        metric_raw %in% c("maxInnerForce", "maxOuterForce") ~ "N",
+        metric_raw == "AB_AD_ratio" ~ "ratio",
+        TRUE ~ NA_character_
+      ),
+      metric_value = parse_metric_numeric(metric_value_raw)
+    ) %>%
+    filter(!is.na(metric_value)) %>%
+    select(-metric_value_raw)
+}
+
+# ---------------------------
 # Manual Overrides ingestion
 # ---------------------------
 
@@ -630,8 +696,9 @@ force      <- ingest_forcedecks(FORCE_PATH)
 catapult   <- ingest_catapult(CAT_PATH)
 smartspeed <- ingest_smartspeed(SMART_PATH)
 overrides  <- ingest_manual_overrides(OVERRIDES_PATH)
+forceframe <- ingest_forceframe(FORCEFRAME_PATH)
 
-vald_tests_long <- bind_rows(nord, force, catapult, smartspeed, overrides) %>%
+vald_tests_long <- bind_rows(nord, force, catapult, smartspeed, overrides, forceframe) %>%
   mutate(
     metric_value = as.numeric(metric_value),
     metric_value = round(metric_value, 3)
@@ -677,6 +744,49 @@ vald_tests_long <- vald_tests_long %>%
 vald_tests_long_ui <- vald_tests_long %>%
   mutate(metric_key = paste(source, test_type, metric_name, sep = "|"))
 
+# ============================================================
+# ForceFrame recalculated ratio (all-time best per player)
+# ============================================================
+forceframe_ratio_key <- "ForceFrame|ForceFrame|Abduction to Adduction Ratio (Recalc)"
+
+if (any(vald_tests_long_ui$source == "ForceFrame")) {
+  ff_data <- vald_tests_long_ui %>%
+    filter(source == "ForceFrame", metric_name %in% c("Max Adduction Force", "Max Abduction Force"))
+  
+  if (nrow(ff_data) > 0) {
+    player_max_forces <- ff_data %>%
+      group_by(player_id, player_name, metric_name) %>%
+      summarise(max_val = max(metric_value, na.rm = TRUE), .groups = "drop") %>%
+      pivot_wider(names_from = metric_name, values_from = max_val) %>%
+      mutate(
+        `Abduction to Adduction Ratio (Recalc)` = `Max Abduction Force` / `Max Adduction Force`
+      ) %>%
+      filter(!is.na(`Abduction to Adduction Ratio (Recalc)`))
+    
+    # Append the recalculated ratio as a new metric row for each player (date = as_of_date)
+    ratio_rows <- player_max_forces %>%
+      transmute(
+        player_id, player_name,
+        date = as_of_date,
+        datetime = as.POSIXct(as_of_date),
+        source = "ForceFrame",
+        test_type = "ForceFrame",
+        metric_name = "Abduction to Adduction Ratio (Recalc)",
+        metric_value = `Abduction to Adduction Ratio (Recalc)`,
+        units = "ratio",
+        pos_group = NA_character_, pos_position = NA_character_, pos_year = NA_integer_,
+        class_year = NA_character_, class_year_base = NA_character_, is_redshirt = NA_character_,
+        height_display = NA_character_, weight_display = NA_character_,
+        wingspan_display = NA_character_, hand_display = NA_character_, arm_display = NA_character_
+      )
+    
+    vald_tests_long_ui <- bind_rows(vald_tests_long_ui, ratio_rows)
+    
+    # Also add the recalculated key to keep_roster_metrics later, after fill_summary is computed
+    force_include_keys <- c(force_include_keys, forceframe_ratio_key)
+  }
+}                                    
+                                    
 # ============================================================
 # BEST and LATEST per player x metric_key (as-of)
 # ============================================================
