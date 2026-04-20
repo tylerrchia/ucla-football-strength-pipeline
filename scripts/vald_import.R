@@ -296,11 +296,11 @@ write_csv(nordbord_FINAL, nordbord_path)
 forceframe_path <- file.path(output_dir, "forceframe.csv")
 
 if (file.exists(forceframe_path)) {
-  nordbord_existing <- read_csv(forceframe_path, show_col_types = FALSE)
+  forceframe_existing <- read_csv(forceframe_path, show_col_types = FALSE)
   
   forceframe_FINAL <- bind_rows(
-    nordbord_existing,
-    nordbord_FINAL
+    forceframe_existing,
+    forceframe_FINAL
   ) %>%
     distinct(profileId, testId, date, .keep_all = TRUE)
 }
