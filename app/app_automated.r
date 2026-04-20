@@ -747,7 +747,7 @@ server <- function(input, output, session) {
     "Total Player Load", "Player Load Per Minute", "ACWR",
     "Best Split Seconds",
     "Vertical Jump", "Squat", "Bench", "Clean",
-    "Abduction to Adduction Ratio"
+    "Abduction to Adduction Ratio", "Max Abduction Force", "Max Adduction Force"
   )
 
   output$roster_table <- renderDT({
@@ -788,6 +788,19 @@ server <- function(input, output, session) {
       pos <- match(total_load_key, metric_show)
       if (!is.na(pos)) metric_show <- append(metric_show, ACWR_KEY, after = pos)
       else             metric_show <- c(metric_show, ACWR_KEY)
+    }
+
+    # Force Max Abduction/Adduction to appear right after the Ratio column
+    ratio_key_ff <- keep_roster_metrics[grepl("\\|Abduction to Adduction Ratio$", keep_roster_metrics)][1]
+    abd_key_ff   <- keep_roster_metrics[grepl("\\|Max Abduction Force$", keep_roster_metrics)][1]
+    add_key_ff   <- keep_roster_metrics[grepl("\\|Max Adduction Force$", keep_roster_metrics)][1]
+    if (!is.na(ratio_key_ff) && (!is.na(abd_key_ff) || !is.na(add_key_ff))) {
+      extra_ff <- c(abd_key_ff, add_key_ff)
+      extra_ff <- extra_ff[!is.na(extra_ff)]
+      metric_show <- metric_show[!metric_show %in% extra_ff]
+      pos_ff <- match(ratio_key_ff, metric_show)
+      if (!is.na(pos_ff)) metric_show <- append(metric_show, extra_ff, after = pos_ff)
+      else                metric_show <- c(metric_show, extra_ff)
     }
 
     # ---- FRONT COLUMNS ----
@@ -855,10 +868,11 @@ server <- function(input, output, session) {
       escape    = FALSE,
       rownames  = FALSE,
       selection = "single",
-      extensions = 'FixedColumns',
+      extensions = c('FixedColumns', 'FixedHeader'),
       options   = list(
         pageLength      = 50,
         scrollX         = TRUE,
+        fixedHeader = TRUE,
         fixedColumns    = list(leftColumns = 1),
         searchHighlight = TRUE,
         columnDefs      = list(list(targets = 0, className = "dt-nowrap")),
@@ -902,7 +916,7 @@ server <- function(input, output, session) {
     }
 
     # Ratio conditional formatting (orange if <0.8 or >1.0)
-    ratio_col_name <- "Abduction to Adduction Ratio (Recalc)"
+    ratio_col_name <- "Abduction to Adduction Ratio"
     if (ratio_col_name %in% names(df_disp)) {
       dt <- dt %>%
         DT::formatStyle(
