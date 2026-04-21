@@ -258,7 +258,11 @@ if (is.null(forceframe_tests) || nrow(forceframe_tests) == 0) {
       date = format(ymd_hms(testDateUtc, tz = "UTC"), "%m/%d/%Y"),
       maxOuterForce = outerRightMaxForce + outerLeftMaxForce,
       maxInnerForce = innerRightMaxForce + innerLeftMaxForce,
-      AB_AD_ratio = maxInnerForce / maxOuterForce
+      AB_AD_ratio = maxInnerForce / maxOuterForce,
+      abduction_assymetry = abs(100 * (outerLeftMaxForce - outerRightMaxForce) /
+                                  ((outerLeftMaxForce + outerRightMaxForce) / 2)),
+      adduction_assymetry = abs(100 * (innerLeftMaxForce - innerRightMaxForce) /
+                                  ((innerLeftMaxForce + innerRightMaxForce) / 2))
     ) %>% 
     select(-c("testDateUtc", "testTypeId", "testPositionId", "testTypeName", "device", "notes", "modifiedDateUtc", "year"))
 }
