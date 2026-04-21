@@ -259,9 +259,9 @@ if (is.null(forceframe_tests) || nrow(forceframe_tests) == 0) {
       maxOuterForce = outerRightMaxForce + outerLeftMaxForce,
       maxInnerForce = innerRightMaxForce + innerLeftMaxForce,
       AB_AD_ratio = maxInnerForce / maxOuterForce,
-      abduction_assymetry = abs(100 * (outerLeftMaxForce - outerRightMaxForce) /
+      abduction_asymmetry = abs(100 * (outerLeftMaxForce - outerRightMaxForce) /
                                   ((outerLeftMaxForce + outerRightMaxForce) / 2)),
-      adduction_assymetry = abs(100 * (innerLeftMaxForce - innerRightMaxForce) /
+      adduction_asymmetry = abs(100 * (innerLeftMaxForce - innerRightMaxForce) /
                                   ((innerLeftMaxForce + innerRightMaxForce) / 2))
     ) %>% 
     select(-c("testDateUtc", "testTypeId", "testPositionId", "testTypeName", "device", "notes", "modifiedDateUtc", "year"))
