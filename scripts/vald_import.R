@@ -302,7 +302,7 @@ if (file.exists(forceframe_path)) {
     forceframe_existing,
     forceframe_FINAL
   ) %>%
-    distinct(profileId, testId, date, .keep_all = TRUE)
+    distinct(profileId, testPositionName, date, .keep_all = TRUE)
 }
 
 write_csv(forceframe_FINAL, forceframe_path)
