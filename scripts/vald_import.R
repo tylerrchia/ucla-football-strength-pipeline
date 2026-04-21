@@ -259,7 +259,8 @@ if (is.null(forceframe_tests) || nrow(forceframe_tests) == 0) {
       maxOuterForce = outerRightMaxForce + outerLeftMaxForce,
       maxInnerForce = innerRightMaxForce + innerLeftMaxForce,
       AB_AD_ratio = maxInnerForce / maxOuterForce
-    )
+    ) %>% 
+    select(-c("testDateUtc", "testTypeId", "testPositionId", "testTypeName", "device", "notes", "modifiedDateUtc", "year"))
 }
 # -------------------------------------------------------------------------------
 
