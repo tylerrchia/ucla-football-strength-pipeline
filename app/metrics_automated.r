@@ -147,7 +147,8 @@ latest_only_metric_name <- function(metric_key) {
   nm <- sub("^.*\\|", "", metric_key) %>% str_squish()
   nm <- str_replace_all(nm, "\\s*\\([^\\)]+\\)\\s*$", "")
   nm <- str_replace_all(nm, "\\s*\\[[^\\]]+\\]\\s*$", "")
-  nm %in% c("Total Player Load", "Total Distance", "Athlete Standing Weight")
+  nm %in% c("Total Player Load", "Total Distance", "Athlete Standing Weight",
+            "Max Imbalance", "Abduction Asymmetry (%)", "Adduction Asymmetry (%)")
 }
 
 `%||%` <- function(a, b) if (!is.null(a) && length(a) > 0 && !all(is.na(a))) a else b
@@ -613,7 +614,10 @@ ingest_forceframe <- function(path) {
   
   id_cols <- c("player_id", "player_name", "date", "datetime", "source", "test_type")
   metric_cols <- intersect(
-    c("maxInnerForce", "maxOuterForce", "AB_AD_ratio"),
+    c("maxInnerForce", "maxOuterForce", "AB_AD_ratio",
+      "outerLeftMaxForce", "outerRightMaxForce",
+      "innerLeftMaxForce", "innerRightMaxForce",
+      "abduction_asymmetry", "adduction_asymmetry"),
     names(raw)
   )
   if (length(metric_cols) == 0) {
@@ -631,14 +635,23 @@ ingest_forceframe <- function(path) {
     ) %>%
     mutate(
       metric_name = case_when(
-        metric_raw == "maxInnerForce" ~ "Max Adduction Force",
-        metric_raw == "maxOuterForce" ~ "Max Abduction Force",
-        metric_raw == "AB_AD_ratio"   ~ "Abduction to Adduction Ratio",
+        metric_raw == "maxInnerForce"        ~ "Max Adduction Force",
+        metric_raw == "maxOuterForce"        ~ "Max Abduction Force",
+        metric_raw == "AB_AD_ratio"          ~ "Abduction to Adduction Ratio",
+        metric_raw == "outerLeftMaxForce"    ~ "L Abduction Max Force",
+        metric_raw == "outerRightMaxForce"   ~ "R Abduction Max Force",
+        metric_raw == "innerLeftMaxForce"    ~ "L Adduction Max Force",
+        metric_raw == "innerRightMaxForce"   ~ "R Adduction Max Force",
+        metric_raw == "abduction_asymmetry"  ~ "Abduction Asymmetry (%)",
+        metric_raw == "adduction_asymmetry"  ~ "Adduction Asymmetry (%)",
         TRUE ~ metric_raw
       ),
       units = case_when(
-        metric_raw %in% c("maxInnerForce", "maxOuterForce") ~ "N",
-        metric_raw == "AB_AD_ratio" ~ "ratio",
+        metric_raw %in% c("maxInnerForce", "maxOuterForce",
+                          "outerLeftMaxForce", "outerRightMaxForce",
+                          "innerLeftMaxForce", "innerRightMaxForce") ~ "N",
+        metric_raw == "AB_AD_ratio"                                  ~ "ratio",
+        metric_raw %in% c("abduction_asymmetry", "adduction_asymmetry") ~ "%",
         TRUE ~ NA_character_
       ),
       metric_value = parse_metric_numeric(metric_value_raw)
@@ -817,7 +830,9 @@ if (any(vald_tests_long_ui$source == "ForceFrame")) {
         "ForceFrame|ForceFrame|Max Adduction Force",
         "ForceFrame|ForceFrame|Max Abduction Force",
         forceframe_ratio_key,
-        forceframe_asym_key
+        forceframe_asym_key,
+        "ForceFrame|ForceFrame|Abduction Asymmetry (%)",
+        "ForceFrame|ForceFrame|Adduction Asymmetry (%)"
       )
     }
   }
