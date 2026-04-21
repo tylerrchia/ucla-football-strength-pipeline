@@ -459,8 +459,10 @@ ui <- navbarPage(
           style = "font-size:11px; color:#6b7280; margin-top:4px;",
           HTML("Values shown are each player's <b>season best</b>, except
                <b>Athlete Standing Weight</b> (most recent),
-               <b>Recent Player Load</b> (most recent session), and
-               <b>ACWR</b> (last 7 vs 28 days).")
+               <b>Recent Player Load</b> (most recent session),
+               <b>ACWR</b> (last 7 vs 28 days), and
+               <b>Nordbord Asymmetry</b>, <b>Abduction Asymmetry</b>, and
+               <b>Adduction Asymmetry</b> (most recent test session).")
         ),
         width = 3
       ),
@@ -747,7 +749,8 @@ server <- function(input, output, session) {
     "Total Player Load", "Player Load Per Minute", "ACWR",
     "Best Split Seconds",
     "Vertical Jump", "Squat", "Bench", "Clean",
-    "Abduction to Adduction Ratio", "Max Abduction Force", "Max Adduction Force"
+    "Abduction to Adduction Ratio", "Max Abduction Force", "Max Adduction Force",
+    "Abduction Asymmetry (%)", "Adduction Asymmetry (%)"
   )
 
   output$roster_table <- renderDT({
@@ -790,17 +793,19 @@ server <- function(input, output, session) {
       else             metric_show <- c(metric_show, ACWR_KEY)
     }
 
-    # Force Max Abduction/Adduction to appear right after the Ratio column
-    ratio_key_ff <- keep_roster_metrics[grepl("\\|Abduction to Adduction Ratio$", keep_roster_metrics)][1]
-    abd_key_ff   <- keep_roster_metrics[grepl("\\|Max Abduction Force$", keep_roster_metrics)][1]
-    add_key_ff   <- keep_roster_metrics[grepl("\\|Max Adduction Force$", keep_roster_metrics)][1]
-    if (!is.na(ratio_key_ff) && (!is.na(abd_key_ff) || !is.na(add_key_ff))) {
-      extra_ff <- c(abd_key_ff, add_key_ff)
-      extra_ff <- extra_ff[!is.na(extra_ff)]
-      metric_show <- metric_show[!metric_show %in% extra_ff]
+    # Order Max Abduction/Adduction Force + asymmetries after the ratio column
+    ratio_key_ff  <- keep_roster_metrics[grepl("\\|Abduction to Adduction Ratio$", keep_roster_metrics)][1]
+    abd_force_key <- keep_roster_metrics[grepl("\\|Max Abduction Force$", keep_roster_metrics)][1]
+    add_force_key <- keep_roster_metrics[grepl("\\|Max Adduction Force$", keep_roster_metrics)][1]
+    abd_asym_key  <- keep_roster_metrics[grepl("\\|Abduction Asymmetry \\(%\\)$", keep_roster_metrics)][1]
+    add_asym_key  <- keep_roster_metrics[grepl("\\|Adduction Asymmetry \\(%\\)$", keep_roster_metrics)][1]
+    ff_extra <- c(abd_force_key, add_force_key, abd_asym_key, add_asym_key)
+    ff_extra <- ff_extra[!is.na(ff_extra)]
+    if (length(ff_extra) > 0 && !is.na(ratio_key_ff)) {
+      metric_show <- metric_show[!metric_show %in% ff_extra]
       pos_ff <- match(ratio_key_ff, metric_show)
-      if (!is.na(pos_ff)) metric_show <- append(metric_show, extra_ff, after = pos_ff)
-      else                metric_show <- c(metric_show, extra_ff)
+      if (!is.na(pos_ff)) metric_show <- append(metric_show, ff_extra, after = pos_ff)
+      else                metric_show <- c(metric_show, ff_extra)
     }
 
     # ---- FRONT COLUMNS ----
@@ -849,13 +854,15 @@ server <- function(input, output, session) {
       pos_group       = "Position Group",
       class_year_base = "Class Year",
       class_year      = "Class Year",
-      `Max Imbalance` = "Nordbord Max Asymmetry"
+      `Max Imbalance` = "Nordbord Asymmetry"
     )
     disp_names <- gsub("Jump Height \\(Imp-Mom\\) in Inches", "Jump Height", disp_names)
     disp_names <- gsub("Jump Height \\(Imp-Mom\\)",           "Jump Height", disp_names)
     disp_names <- gsub(" in Inches", "",        disp_names)
     disp_names <- gsub("Total Player Load",    "Recent Player Load", disp_names)
     disp_names <- gsub("^Best Split Seconds$", "Flying 10s",         disp_names)
+    disp_names <- gsub("^Abduction Asymmetry \\(%\\)$", "Abduction Asymmetry (%)", disp_names)
+    disp_names <- gsub("^Adduction Asymmetry \\(%\\)$", "Adduction Asymmetry (%)", disp_names)
     # ACWR stays as "ACWR"
 
     colnames(df_disp) <- disp_names
@@ -916,17 +923,35 @@ server <- function(input, output, session) {
     }
 
     # Ratio conditional formatting (orange if <0.8 or >1.0)
-    ratio_col_name <- "Abduction to Adduction Ratio"
-    if (ratio_col_name %in% names(df_disp)) {
+    # Ratio coloring
+    if ("Abduction to Adduction Ratio" %in% names(df_disp)) {
       dt <- dt %>%
+        DT::formatRound("Abduction to Adduction Ratio", 2) %>%
         DT::formatStyle(
-          ratio_col_name,
+          "Abduction to Adduction Ratio",
           backgroundColor = DT::styleInterval(
-            cuts = c(0.8, 1.0),
-            values = c("#FFD6A5", "white", "#FFD6A5")   # orange
+            cuts   = c(0.8, 1.0),
+            values = c("#FFD6A5", "white", "#FFD6A5")
           )
         )
-    }  
+    }
+
+    # Nordbord + ForceFrame asymmetry coloring (orange >10%, red >15%)
+    for (asym_col in c("Nordbord Asymmetry",
+                       "Abduction Asymmetry (%)",
+                       "Adduction Asymmetry (%)")) {
+      if (asym_col %in% names(df_disp)) {
+        dt <- dt %>%
+          DT::formatRound(asym_col, 1) %>%
+          DT::formatStyle(
+            asym_col,
+            backgroundColor = DT::styleInterval(
+              cuts   = c(10, 15),
+              values = c("white", "#FFD6A5", "#FFB8B8")
+            )
+          )
+      }
+    }
       
     dt
   })
