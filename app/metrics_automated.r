@@ -148,7 +148,7 @@ latest_only_metric_name <- function(metric_key) {
   nm <- str_replace_all(nm, "\\s*\\([^\\)]+\\)\\s*$", "")
   nm <- str_replace_all(nm, "\\s*\\[[^\\]]+\\]\\s*$", "")
   nm %in% c("Total Player Load", "Total Distance", "Athlete Standing Weight",
-            "Nordbord Asymmetry (%)", "Abduction Asymmetry (%)", "Adduction Asymmetry (%)")
+            "Nordbord Asymmetry", "Abduction Asymmetry", "Adduction Asymmetry")
 }
 
 `%||%` <- function(a, b) if (!is.null(a) && length(a) > 0 && !all(is.na(a))) a else b
