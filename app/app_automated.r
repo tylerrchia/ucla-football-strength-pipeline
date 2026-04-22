@@ -297,7 +297,7 @@ force_metric_names <- c(
   "Abduction to Adduction Ratio"
 )
 
-nord_metric_names <- c("L Max Force", "R Max Force", "L Max Impulse", "R Max Impulse", "Max Imbalance")
+nord_metric_names <- c("L Max Force", "R Max Force", "L Max Impulse", "R Max Impulse", "Nordbord Asymmetry (%)")
 
 
 force_metric_keys_map_fd <- pick_best_keys_for_metric_names("ForceDecks", force_metric_names, fill_summary)
@@ -1101,7 +1101,7 @@ server <- function(input, output, session) {
       pos_group       = "Position Group",
       class_year_base = "Class Year",
       class_year      = "Class Year",
-      `Max Imbalance` = "Nordbord Asymmetry"
+      `Nordbord Asymmetry (%)` = "Nordbord Asymmetry (%)"
     )
     disp_names <- gsub("Jump Height \\(Imp-Mom\\) in Inches", "Jump Height", disp_names)
     disp_names <- gsub("Jump Height \\(Imp-Mom\\)",           "Jump Height", disp_names)
@@ -1190,7 +1190,7 @@ server <- function(input, output, session) {
     }
 
     # Nordbord + ForceFrame asymmetry coloring (orange >10%, red >15%)
-    for (asym_col in c("Nordbord Asymmetry",
+    for (asym_col in c("Nordbord Asymmetry (%)",
                        "Abduction Asymmetry (%)",
                        "Adduction Asymmetry (%)")) {
       if (asym_col %in% names(df_disp)) {
