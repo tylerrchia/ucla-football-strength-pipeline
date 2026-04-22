@@ -1676,11 +1676,8 @@ server <- function(input, output, session) {
     }
 
     # Nordbord + ForceFrame asymmetry coloring (orange >10%, red >15%)
-<<<<<<< HEAD
-    for (asym_col in c("Nordbord Asymmetry (%)",
-=======
-    for (asym_col in c("Nordic Asymmetry",
->>>>>>> e9a654b (Make radar plots use NCAA medians & pull in ISO Prone data)
+
+    for (asym_col in c("Nordic Asymmetry (%)",
                        "Abduction Asymmetry (%)",
                        "Adduction Asymmetry (%)")) {
       if (asym_col %in% names(df_disp)) {
