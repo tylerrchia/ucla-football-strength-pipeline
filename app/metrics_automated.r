@@ -148,7 +148,7 @@ latest_only_metric_name <- function(metric_key) {
   nm <- str_replace_all(nm, "\\s*\\([^\\)]+\\)\\s*$", "")
   nm <- str_replace_all(nm, "\\s*\\[[^\\]]+\\]\\s*$", "")
   nm %in% c("Total Player Load", "Total Distance", "Athlete Standing Weight",
-            "Max Imbalance", "Abduction Asymmetry (%)", "Adduction Asymmetry (%)")
+            "Nordbord Asymmetry (%)", "Abduction Asymmetry (%)", "Adduction Asymmetry (%)")
 }
 
 `%||%` <- function(a, b) if (!is.null(a) && length(a) > 0 && !all(is.na(a))) a else b
@@ -332,7 +332,7 @@ ingest_nordboard <- function(path) {
         metric_raw == "rightAvgForce" ~ "R Avg Force",
         metric_raw == "rightImpulse"  ~ "R Max Impulse",
         metric_raw == "rightMaxForce" ~ "R Max Force",
-        metric_raw == "asymmetry"     ~ "Max Imbalance",
+        metric_raw == "asymmetry"     ~ "Nordbord Asymmetry (%)",
         metric_raw == "avg_max_force" ~ "Avg Max Force",
         TRUE ~ metric_raw
       ),
