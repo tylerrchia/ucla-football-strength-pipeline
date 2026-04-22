@@ -148,7 +148,7 @@ latest_only_metric_name <- function(metric_key) {
   nm <- str_replace_all(nm, "\\s*\\([^\\)]+\\)\\s*$", "")
   nm <- str_replace_all(nm, "\\s*\\[[^\\]]+\\]\\s*$", "")
   nm %in% c("Total Player Load", "Total Distance", "Athlete Standing Weight",
-            "Nordbord Asymmetry", "Abduction Asymmetry", "Adduction Asymmetry")
+            "Max Imbalance", "ISO Prone Max Imbalance", "Abduction Asymmetry (%)", "Adduction Asymmetry (%)")
 }
 
 `%||%` <- function(a, b) if (!is.null(a) && length(a) > 0 && !all(is.na(a))) a else b
@@ -325,16 +325,20 @@ ingest_nordboard <- function(path) {
       values_transform = list(metric_value_raw = as.character)
     ) %>%
     mutate(
-      metric_name = case_when(
+      metric_name_base = case_when(
         metric_raw == "leftAvgForce"  ~ "L Avg Force",
         metric_raw == "leftImpulse"   ~ "L Max Impulse",
         metric_raw == "leftMaxForce"  ~ "L Max Force",
         metric_raw == "rightAvgForce" ~ "R Avg Force",
         metric_raw == "rightImpulse"  ~ "R Max Impulse",
         metric_raw == "rightMaxForce" ~ "R Max Force",
-        metric_raw == "asymmetry"     ~ "Nordbord Asymmetry (%)",
+        metric_raw == "asymmetry"     ~ "Max Imbalance",
         metric_raw == "avg_max_force" ~ "Avg Max Force",
         TRUE ~ metric_raw
+      ),
+      metric_name = case_when(
+        str_to_lower(str_squish(test_type)) == "iso prone" ~ paste("ISO Prone", metric_name_base),
+        TRUE ~ metric_name_base
       ),
       units = case_when(
         str_detect(metric_raw, "Force")   ~ "N",
@@ -345,7 +349,8 @@ ingest_nordboard <- function(path) {
       metric_value = parse_metric_numeric(metric_value_raw)
     ) %>%
     filter(!is.na(metric_value)) %>%
-    select(-metric_value_raw)
+    select(-metric_value_raw, -metric_name_base)
+    
 }
 
 # ---------------------------
