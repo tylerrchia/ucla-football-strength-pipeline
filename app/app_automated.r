@@ -990,7 +990,7 @@ server <- function(input, output, session) {
     "Jump Height (Imp-Mom)", "RSI-modified (Imp-Mom)", "Force at Peak Power",
     "Force at Zero Velocity", "Eccentric Braking Impulse", "Concentric Impulse",
     "L Max Force", "R Max Force", "Avg Max Force",
-    "L Max Impulse", "R Max Impulse", "Max Imbalance", "Impulse Imbalance",
+    "L Max Impulse", "R Max Impulse", "Nordbord Asymmetry (%)",
     "Total Distance", "Max Vel", "Max Effort Acceleration", "Max Effort Deceleration",
     "Total Player Load", "Player Load Per Minute", "ACWR",
     "Best Split Seconds",
@@ -1039,13 +1039,15 @@ server <- function(input, output, session) {
       else             metric_show <- c(metric_show, ACWR_KEY)
     }
 
-    # Keep Max Abduction/Adduction right after the Ratio only if they are already included
-    ratio_key_ff <- keep_roster_metrics[grepl("\\|Abduction to Adduction Ratio$", keep_roster_metrics)][1]
-    abd_key_ff   <- keep_roster_metrics[grepl("\\|Max Abduction Force$", keep_roster_metrics)][1]
-    add_key_ff   <- keep_roster_metrics[grepl("\\|Max Adduction Force$", keep_roster_metrics)][1]
-    
+    ratio_key_ff    <- keep_roster_metrics[grepl("\\|Abduction to Adduction Ratio$", keep_roster_metrics)][1]
+    abd_force_key   <- keep_roster_metrics[grepl("\\|Max Abduction Force$", keep_roster_metrics)][1]
+    add_force_key   <- keep_roster_metrics[grepl("\\|Max Adduction Force$", keep_roster_metrics)][1]
+    abd_asym_key    <- keep_roster_metrics[grepl("\\|Abduction Asymmetry \\(%\\)$", keep_roster_metrics)][1]
+    add_asym_key    <- keep_roster_metrics[grepl("\\|Adduction Asymmetry \\(%\\)$", keep_roster_metrics)][1]
+
     if (!is.na(ratio_key_ff) && ratio_key_ff %in% metric_show) {
-      extra_ff <- c(abd_key_ff, add_key_ff)
+      # Order: Ratio → Max Abduction Force → Max Adduction Force → Abduction Asymmetry → Adduction Asymmetry
+      extra_ff <- c(abd_force_key, add_force_key, abd_asym_key, add_asym_key)
       extra_ff <- extra_ff[!is.na(extra_ff) & extra_ff %in% metric_show]
       metric_show <- metric_show[!metric_show %in% extra_ff]
       pos_ff <- match(ratio_key_ff, metric_show)
