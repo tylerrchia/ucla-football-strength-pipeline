@@ -82,6 +82,432 @@ wrap_radar_label <- function(x, width = 18) {
   )
 }
 
+
+position_ncaa_medians <- list(
+  QB = tibble::tribble(
+    ~axis, ~median_value, ~invert,
+    "Avg Max Force", 435, FALSE,
+    "Asymmetry", 6, TRUE,
+    "ADD:ABD", 0.88, FALSE,
+    "RSI-modified", 0.65, FALSE,
+    "Force at Zero Velocity", 2413, FALSE,
+    "Jump Height", 16.1, FALSE,
+    "Concentric Impulse", 253, FALSE,
+    "Force at Peak Power", 2151, FALSE,
+    "Eccentric Braking Impulse", 125, FALSE
+  ),
+  
+  `CB/SAF` = tibble::tribble(
+    ~axis, ~median_value, ~invert,
+    "Avg Max Force", 451, FALSE,
+    "Asymmetry", 7, TRUE,
+    "ADD:ABD", 0.89, FALSE,
+    "RSI-modified", 0.70, FALSE,
+    "Force at Zero Velocity", 2289, FALSE,
+    "Jump Height", 18.3, FALSE,
+    "Concentric Impulse", 259, FALSE,
+    "Force at Peak Power", 2089, FALSE,
+    "Eccentric Braking Impulse", 124, FALSE
+  ),
+  
+  `DE/DT` = tibble::tribble(
+    ~axis, ~median_value, ~invert,
+    "Avg Max Force", 560, FALSE,
+    "Asymmetry", 7, TRUE,
+    "ADD:ABD", 0.88, FALSE,
+    "RSI-modified", 0.54, FALSE,
+    "Force at Zero Velocity", 2654, FALSE,
+    "Jump Height", 15.0, FALSE,
+    "Concentric Impulse", 334, FALSE,
+    "Force at Peak Power", 2734, FALSE,
+    "Eccentric Braking Impulse", 166, FALSE
+  ),
+  
+  LB = tibble::tribble(
+    ~axis, ~median_value, ~invert,
+    "Avg Max Force", 522, FALSE,
+    "Asymmetry", 6, TRUE,
+    "ADD:ABD", 0.90, FALSE,
+    "RSI-modified", 0.64, FALSE,
+    "Force at Zero Velocity", 2549, FALSE,
+    "Jump Height", 17.3, FALSE,
+    "Concentric Impulse", 301, FALSE,
+    "Force at Peak Power", 2403, FALSE,
+    "Eccentric Braking Impulse", 146, FALSE
+  ),
+  
+  OL = tibble::tribble(
+    ~axis, ~median_value, ~invert,
+    "Avg Max Force", 556, FALSE,
+    "Asymmetry", 6, TRUE,
+    "ADD:ABD", 0.92, FALSE,
+    "RSI-modified", 0.43, FALSE,
+    "Force at Zero Velocity", 2788, FALSE,
+    "Jump Height", 12.3, FALSE,
+    "Concentric Impulse", 350, FALSE,
+    "Force at Peak Power", 2979, FALSE,
+    "Eccentric Braking Impulse", 190, FALSE
+  ),
+  
+  RB = tibble::tribble(
+    ~axis, ~median_value, ~invert,
+    "Avg Max Force", 488, FALSE,
+    "Asymmetry", 7, TRUE,
+    "ADD:ABD", 0.90, FALSE,
+    "RSI-modified", 0.67, FALSE,
+    "Force at Zero Velocity", 2605, FALSE,
+    "Jump Height", 17.6, FALSE,
+    "Concentric Impulse", 278, FALSE,
+    "Force at Peak Power", 2274, FALSE,
+    "Eccentric Braking Impulse", 137, FALSE
+  ),
+  
+  TE = tibble::tribble(
+    ~axis, ~median_value, ~invert,
+    "Avg Max Force", 528, FALSE,
+    "Asymmetry", 6, TRUE,
+    "ADD:ABD", 0.88, FALSE,
+    "RSI-modified", 0.56, FALSE,
+    "Force at Zero Velocity", 2613, FALSE,
+    "Jump Height", 15.4, FALSE,
+    "Concentric Impulse", 306, FALSE,
+    "Force at Peak Power", 2456, FALSE,
+    "Eccentric Braking Impulse", 156, FALSE
+  ),
+  
+  WR = tibble::tribble(
+    ~axis, ~median_value, ~invert,
+    "Avg Max Force", 447, FALSE,
+    "Asymmetry", 8, TRUE,
+    "ADD:ABD", 0.94, FALSE,
+    "RSI-modified", 0.94, FALSE,
+    "Force at Zero Velocity", 2356, FALSE,
+    "Jump Height", 18.0, FALSE,
+    "Concentric Impulse", 257, FALSE,
+    "Force at Peak Power", 2135, FALSE,
+    "Eccentric Braking Impulse", 120, FALSE
+  ),
+  
+  `ST` = tibble::tribble(
+    ~axis, ~median_value, ~invert,
+    "Avg Max Force", 501, FALSE,
+    "Asymmetry", 5, TRUE,
+    "ADD:ABD", NA_real_, FALSE,
+    "RSI-modified", 0.54, FALSE,
+    "Force at Zero Velocity", 2567, FALSE,
+    "Jump Height", 15.4, FALSE,
+    "Concentric Impulse", 293, FALSE,
+    "Force at Peak Power", 2345, FALSE,
+    "Eccentric Braking Impulse", 147, FALSE
+  ),
+  
+  `K/P` = tibble::tribble(
+    ~axis, ~median_value, ~invert,
+    "Avg Max Force", 501, FALSE,
+    "Asymmetry", 5, TRUE,
+    "ADD:ABD", NA_real_, FALSE,
+    "RSI-modified", 0.59, FALSE,
+    "Force at Zero Velocity", 2461, FALSE,
+    "Jump Height", 16.4, FALSE,
+    "Concentric Impulse", 367, FALSE,
+    "Force at Peak Power", 2040, FALSE,
+    "Eccentric Braking Impulse", 143, FALSE
+  )
+)
+
+scale_vs_median <- function(player_value, median_value, invert = FALSE) {
+  if (is.na(player_value) || is.na(median_value) || median_value == 0) return(NA_real_)
+  if (invert) {
+    if (player_value == 0) return(200)
+    out <- 100 * median_value / player_value
+  } else {
+    out <- 100 * player_value / median_value
+  }
+  pmin(pmax(out, 0), 200)
+}
+
+get_roster_value_by_metric_name <- function(player_name, metric_name) {
+  row <- roster_view %>%
+    dplyr::filter(player_name == !!player_name) %>%
+    dplyr::slice_head(n = 1)
+  if (nrow(row) == 0) return(NA_real_)
+  
+  norm <- function(x) {
+    x %>%
+      stringr::str_squish() %>%
+      stringr::str_to_lower() %>%
+      stringr::str_replace_all("\\s*\\([^\\)]*\\)\\s*$", "") %>%
+      stringr::str_replace_all("\\s*in inches\\s*$", "") %>%
+      stringr::str_squish()
+  }
+  
+  metric_target <- norm(metric_name)
+  
+  metric_candidates <- keep_roster_metrics[
+    vapply(keep_roster_metrics, function(k) {
+      parts <- strsplit(k, "\\|")[[1]]
+      if (length(parts) < 3) return(FALSE)
+      norm(parts[3]) == metric_target
+    }, logical(1))
+  ]
+  
+  if (length(metric_candidates) == 0) return(NA_real_)
+  
+  metric_key <- metric_candidates[1]
+  if (!(metric_key %in% names(row))) return(NA_real_)
+  
+  suppressWarnings(as.numeric(row[[metric_key]][1]))
+}
+
+
+get_player_position_label <- function(player_name) {
+  row <- roster_view %>%
+    dplyr::filter(player_name == !!player_name) %>%
+    dplyr::slice_head(n = 1)
+  
+  if (nrow(row) == 0) return(NA_character_)
+  if (is.null(pos_col) || !(pos_col %in% names(row))) return(NA_character_)
+  
+  as.character(row[[pos_col]][1])
+}
+
+map_position_to_benchmark_group <- function(pos) {
+  if (is.na(pos) || !nzchar(pos)) return("QB")
+  
+  pos <- toupper(stringr::str_squish(pos))
+  
+  dplyr::case_when(
+    pos == "QB" ~ "QB",
+    
+    pos %in% c("CB", "S", "SAF", "FS", "SS", "NB", "DB") ~ "CB/SAF",
+    
+    pos %in% c("DE", "DT", "DL", "NT") ~ "DE/DT",
+    
+    pos %in% c("LB", "ILB", "OLB", "MLB", "MIKE", "WILL", "SAM", "EDGE") ~ "LB",
+    
+    pos %in% c("OL", "OT", "OG", "C", "LT", "RT", "LG", "RG") ~ "OL",
+    
+    pos == "RB" ~ "RB",
+    
+    pos == "TE" ~ "TE",
+    
+    pos %in% c("WR", "X", "Z", "SLOT") ~ "WR",
+    
+    pos %in% c("SP/LS") ~ "ST",
+    
+    pos %in% c("SP/K", "SP/P", "PK") ~ "K/P",
+    
+    TRUE ~ "QB"
+  )
+}
+
+get_player_ncaa_medians <- function(player_name) {
+  pos <- get_player_position_label(player_name)
+  bench_group <- map_position_to_benchmark_group(pos)
+  
+  out <- position_ncaa_medians[[bench_group]]
+  if (is.null(out)) out <- position_ncaa_medians[["QB"]]
+  
+  out
+}
+
+get_player_benchmark_group <- function(player_name) {
+  pos <- get_player_position_label(player_name)
+  map_position_to_benchmark_group(pos)
+}
+
+
+build_axis_df_for_player <- function(player_name, axis_template) {
+  med_df <- get_player_ncaa_medians(player_name)
+  
+  axis_lookup <- med_df %>%
+    dplyr::mutate(
+      axis = dplyr::case_when(
+        axis == "Avg Max Force" ~ "Avg Max Force (NordBord)",
+        axis == "Asymmetry" ~ "Asymmetry (NordBord)",
+        axis == "ADD:ABD" ~ "Hip ADD:ABD Ratio (ForceFrame)",
+        TRUE ~ axis
+      )
+    ) %>%
+    dplyr::select(axis, median_value)
+  
+  axis_template %>%
+    dplyr::left_join(axis_lookup, by = "axis") %>%
+    dplyr::filter(!is.na(median_value))
+}
+
+
+render_benchmark_radar <- function(player_name, axis_df, title) {
+  axis_df <- build_axis_df_for_player(player_name, axis_df)
+  
+  benchmark_group <- get_player_benchmark_group(player_name)
+  subtitle_text <- paste0("100 = ", benchmark_group, " NCAA median")
+  
+  player_vals <- vapply(axis_df$source_metric, function(x) {
+    get_roster_value_by_metric_name(player_name, x)
+  }, numeric(1))
+  
+  player_scaled <- mapply(
+    scale_vs_median,
+    player_value = player_vals,
+    median_value = axis_df$median_value,
+    invert = axis_df$invert
+  )
+  
+  plot_df <- dplyr::bind_rows(
+    tibble::tibble(
+      trace = "NCAA Median",
+      axis = axis_df$axis,
+      value = 100
+    ),
+    tibble::tibble(
+      trace = player_name,
+      axis = axis_df$axis,
+      value = player_scaled
+    )
+  )
+  
+  axis_levels <- axis_df$axis
+  
+  make_closed <- function(d) {
+    d <- d %>% dplyr::arrange(match(axis, axis_levels))
+    dplyr::bind_rows(d, d %>% dplyr::slice_head(n = 1))
+  }
+  
+  p <- plotly::plot_ly()
+  
+  for (tr in unique(plot_df$trace)) {
+    d <- plot_df %>% dplyr::filter(trace == tr) %>% make_closed()
+    is_player <- tr == player_name
+    
+    p <- p %>%
+      plotly::add_trace(
+        data = d,
+        type = "scatterpolar",
+        mode = "lines+markers",
+        r = ~value,
+        theta = ~wrap_radar_label(axis),
+        name = tr,
+        hovertemplate = "%{theta}: %{r:.1f}<extra></extra>",
+        line = list(width = if (is_player) 4 else 2, dash = if (is_player) "solid" else "dot"),
+        marker = list(size = if (is_player) 7 else 5),
+        fill = if (is_player) "toself" else "none",
+        fillcolor = if (is_player) "rgba(39,116,174,0.15)" else NULL
+      )
+  }
+  
+  wrapped_axis_levels <- wrap_radar_label(axis_levels, width = 18)
+  
+  p %>%
+    plotly::layout(
+      title = list(
+        text = paste0(title, "<br><sup>", subtitle_text, "</sup>"),
+        y = 0.95,
+        x = 0.5,
+        xanchor = "center"
+      ),
+      polar = list(
+        radialaxis = list(range = c(0, 200), tickvals = c(50, 100, 150, 200)),
+        angularaxis = list(
+          categoryorder = "array",
+          categoryarray = wrapped_axis_levels,
+          tickmode = "array",
+          tickvals = wrapped_axis_levels,
+          ticktext = wrapped_axis_levels
+        )
+      ),
+      margin = list(l = 70, r = 70, t = 100, b = 70)
+    )
+}
+
+render_benchmark_radar_compare <- function(player_names, axis_df, title) {
+  
+  benchmark_player <- player_names[1]
+  axis_df <- build_axis_df_for_player(benchmark_player, axis_df)
+  
+  benchmark_group <- get_player_benchmark_group(benchmark_player)
+  subtitle_text <- paste0("100 = ", benchmark_group, " NCAA median")
+  
+  get_scaled <- function(player_name) {
+    player_vals <- vapply(axis_df$source_metric, function(x) {
+      get_roster_value_by_metric_name(player_name, x)
+    }, numeric(1))
+    
+    mapply(
+      scale_vs_median,
+      player_value = player_vals,
+      median_value = axis_df$median_value,
+      invert = axis_df$invert
+    )
+  }
+  
+  plot_df <- dplyr::bind_rows(
+    tibble::tibble(
+      trace = "NCAA Median",
+      axis = axis_df$axis,
+      value = 100
+    ),
+    lapply(player_names, function(pn) {
+      tibble::tibble(
+        trace = pn,
+        axis = axis_df$axis,
+        value = get_scaled(pn)
+      )
+    }) %>% bind_rows()
+  )
+  
+  axis_levels <- axis_df$axis
+  
+  make_closed <- function(d) {
+    d <- d %>% dplyr::arrange(match(axis, axis_levels))
+    dplyr::bind_rows(d, d %>% dplyr::slice_head(n = 1))
+  }
+  
+  p <- plotly::plot_ly()
+  
+  for (tr in unique(plot_df$trace)) {
+    d <- plot_df %>% dplyr::filter(trace == tr) %>% make_closed()
+    is_median <- tr == "NCAA Median"
+    
+    p <- p %>%
+      plotly::add_trace(
+        data = d,
+        type = "scatterpolar",
+        mode = "lines+markers",
+        r = ~value,
+        theta = ~wrap_radar_label(axis),
+        name = tr,
+        hovertemplate = "%{theta}: %{r:.1f}<extra></extra>",
+        line = list(
+          width = if (is_median) 2 else 4,
+          dash = if (is_median) "dot" else "solid"
+        ),
+        fill = if (!is_median) "toself" else "none",
+        opacity = if (is_median) 0.7 else 1
+      )
+  }
+  
+  wrapped_axis_levels <- wrap_radar_label(axis_levels, width = 18)
+  
+  p %>%
+    plotly::layout(
+      title = list(
+        text = paste0(title, "<br><sup>", subtitle_text, "</sup>"),
+        y = 0.95,
+        x = 0.5,
+        xanchor = "center"
+      ),
+      polar = list(
+        radialaxis = list(range = c(0, 200)),
+        angularaxis = list(
+          categoryorder = "array",
+          categoryarray = wrapped_axis_levels
+        )
+      ),
+      margin = list(l = 70, r = 70, t = 100, b = 70)
+    )
+}
+
 render_plotly_radar <- function(df_long, selected_player, title = NULL, subtitle_empty = "No data available") {
   axis_levels <- df_long$axis %>% unique()
   axis_levels <- axis_levels[!is.na(axis_levels) & nzchar(axis_levels)]
@@ -150,9 +576,9 @@ render_plotly_radar <- function(df_long, selected_player, title = NULL, subtitle
     )
 }
 
-vald_tests_long_ui <- vald_tests_long_ui %>%
-  filter(!str_detect(str_to_lower(test_type), "iso\\s*prone"))
-keep_roster_metrics <- keep_roster_metrics[!str_detect(str_to_lower(keep_roster_metrics), "\\|iso\\s*prone\\|")]
+# vald_tests_long_ui <- vald_tests_long_ui %>%
+#   filter(!str_detect(str_to_lower(test_type), "iso\\s*prone"))
+# keep_roster_metrics <- keep_roster_metrics[!str_detect(str_to_lower(keep_roster_metrics), "\\|iso\\s*prone\\|")]
 
 # ---------------------------
 # Athleticism score key
@@ -188,7 +614,7 @@ acwr_zone_label <- function(val) {
 }
 
 ath_tooltip_text <- paste(
-  "Weighted composite of position-group percentiles:",
+  "Weighted composite of team position-group percentiles:",
   "Jump Height 12.5%",
   "Force at Peak Power 12.5%",
   "RSI-modified 10%",
@@ -297,7 +723,20 @@ force_metric_names <- c(
   "Abduction to Adduction Ratio"
 )
 
-nord_metric_names <- c("L Max Force", "R Max Force", "L Max Impulse", "R Max Impulse", "Nordbord Asymmetry (%)")
+nord_metric_names <- c(
+  "Avg Max Force",
+  "L Max Force",
+  "R Max Force",
+  "L Max Impulse",
+  "R Max Impulse",
+  "Max Imbalance",
+  "ISO Prone Avg Max Force",
+  "ISO Prone L Max Force",
+  "ISO Prone R Max Force",
+  "ISO Prone L Max Impulse",
+  "ISO Prone R Max Impulse",
+  "ISO Prone Max Imbalance"
+)
 
 
 force_metric_keys_map_fd <- pick_best_keys_for_metric_names("ForceDecks", force_metric_names, fill_summary)
@@ -320,7 +759,8 @@ radar_nord_metrics  <- unname(nord_metric_keys_map[!is.na(nord_metric_keys_map)]
 radar_nord_labels <- tibble::tibble(
   metric_key  = unname(nord_metric_keys_map),
   radar_label = names(nord_metric_keys_map)
-) %>% filter(!is.na(metric_key))
+) %>% filter(!is.na(metric_key)) %>%
+  mutate(radar_label = gsub("^ISO Prone ", "ISO: ", radar_label))
 
 catapult_metric_names <- c(
   "Player Load Per Minute", "Max Vel", "Max Effort Acceleration", "Max Effort Deceleration",
@@ -349,6 +789,25 @@ radar_lift_labels    <- tibble::tibble(
   metric_key  = unname(lift_metric_keys_map),
   radar_label = names(lift_metric_keys_map)
 ) %>% filter(!is.na(metric_key))
+
+
+
+nord_qb_axes <- tibble::tribble(
+  ~axis, ~source_metric, ~invert,
+  "Avg Max Force (NordBord)", "Avg Max Force", FALSE,
+  "Asymmetry (NordBord)", "Max Imbalance", TRUE,
+  "Hip ADD:ABD Ratio (ForceFrame)", "Abduction to Adduction Ratio", FALSE
+)
+
+force_qb_axes <- tibble::tribble(
+  ~axis, ~source_metric, ~invert,
+  "RSI-modified", "RSI-modified (Imp-Mom)", FALSE,
+  "Force at Zero Velocity", "Force at Zero Velocity", FALSE,
+  "Jump Height", "Jump Height (Imp-Mom)", FALSE,
+  "Concentric Impulse", "Concentric Impulse", FALSE,
+  "Force at Peak Power", "Force at Peak Power", FALSE,
+  "Eccentric Braking Impulse", "Eccentric Braking Impulse", FALSE
+)
 
 pick_radar_metrics <- function(fill_summary, metric_lut, n_total = 6) {
   fs <- fill_summary %>%
@@ -504,7 +963,7 @@ ui <- navbarPage(
                <b>Athlete Standing Weight</b> (most recent),
                <b>Recent Player Load</b> (most recent session),
                <b>ACWR</b> (last 7 vs 28 days), and
-               <b>Nordbord Asymmetry</b>, <b>Abduction Asymmetry</b>, and
+               <b>Nordic Asymmetry</b>, <b>Abduction Asymmetry</b>, and
                <b>Adduction Asymmetry</b> (most recent test session).")
         ),
         width = 3
@@ -537,10 +996,10 @@ ui <- navbarPage(
               onclick = "var el=this.parentElement; if(!document.fullscreenElement){el.requestFullscreen();}else{document.exitFullscreen();}",
               style = "position:absolute;top:4px;right:4px;z-index:999;background:rgba(255,255,255,0.85);border:1px solid #ccc;border-radius:4px;padding:2px 8px;font-size:16px;cursor:pointer;"
             ),
-            plotlyOutput("radar_catapult_plot", height = 360)
+            plotlyOutput("radar_catapult_plot", height = 400)
           ),
           
-          h4("Force Radar"),
+          h4("ForceDecks Radar"),
           div(
             style = "position:relative;",
             tags$button(
@@ -548,10 +1007,16 @@ ui <- navbarPage(
               onclick = "var el=this.parentElement; if(!document.fullscreenElement){el.requestFullscreen();}else{document.exitFullscreen();}",
               style = "position:absolute;top:4px;right:4px;z-index:999;background:rgba(255,255,255,0.85);border:1px solid #ccc;border-radius:4px;padding:2px 8px;font-size:16px;cursor:pointer;"
             ),
-            plotlyOutput("radar_force_plot", height = 360)
+            plotlyOutput("radar_force_plot", height = 400)
           ),
-          
-          h4("NordBord Radar"),
+          h4(
+            HTML(
+              "Hamstring &amp; Hip Radar&nbsp;
+     <span data-toggle='tooltip'
+           title='ADD:ABD uses NFL medians.'
+           style='cursor:help; font-size:14px; color:#666;'>ⓘ</span>"
+            )
+          ),
           div(
             style = "position:relative;",
             tags$button(
@@ -559,7 +1024,7 @@ ui <- navbarPage(
               onclick = "var el=this.parentElement; if(!document.fullscreenElement){el.requestFullscreen();}else{document.exitFullscreen();}",
               style = "position:absolute;top:4px;right:4px;z-index:999;background:rgba(255,255,255,0.85);border:1px solid #ccc;border-radius:4px;padding:2px 8px;font-size:16px;cursor:pointer;"
             ),
-            plotlyOutput("radar_nord_plot", height = 360)
+            plotlyOutput("radar_nord_plot", height = 400)
           ),
           
           h4("Quick tags"),
@@ -599,7 +1064,7 @@ ui <- navbarPage(
                       8,
                       selectInput(
                         "poscomp_radar_metrics",
-                        "Radar metrics",
+                        "Metrics to display",
                         choices = NULL,
                         selected = NULL,
                         multiple = TRUE,
@@ -614,7 +1079,7 @@ ui <- navbarPage(
                         actionButton("poscomp_preset_all", "All"),
                         actionButton("poscomp_preset_catapult", "Catapult only"),
                         actionButton("poscomp_preset_force", "Force only"),
-                        actionButton("poscomp_preset_nord", "Nord only")
+                        actionButton("poscomp_preset_nord", "NordBord only")
                       )
                     )
                   ),
@@ -625,7 +1090,7 @@ ui <- navbarPage(
                       onclick = "var el=this.parentElement; if(!document.fullscreenElement){el.requestFullscreen();}else{document.exitFullscreen();}",
                       style = "position:absolute;top:4px;right:4px;z-index:999;background:rgba(255,255,255,0.85);border:1px solid #ccc;border-radius:4px;padding:2px 8px;font-size:16px;cursor:pointer;"
                     ),
-                    plotlyOutput("poscomp_radar", height = 700)
+                    plotlyOutput("poscomp_radar", height = 750)
                   )                )
               )
             ),
@@ -653,9 +1118,9 @@ ui <- navbarPage(
                 column(8,
                        h4("Catapult Radar"),    plotlyOutput("compare_catapult_radar_plot",  height = 360),
                        tags$hr(),
-                       h4("Force Radar"),  plotlyOutput("compare_force_radar_plot",     height = 360),
+                       h4("ForceDecks Radar"),  plotlyOutput("compare_force_radar_plot",     height = 360),
                        tags$hr(),
-                       h4("NordBord Radar"),    plotlyOutput("compare_nord_radar_plot",      height = 360))
+                       h4("Hamstring & Hip Radar"),    plotlyOutput("compare_nord_radar_plot",      height = 360))
               )
             ),
             tabPanel(
@@ -845,10 +1310,21 @@ server <- function(input, output, session) {
       filter(!is.na(metric_key), nzchar(metric_key), !is.na(radar_label), nzchar(radar_label))
     
     # keep same order as the big radar if possible
+    # axis_order <- c(
+    #   "Jump Height (Imp-Mom)", "Force at Zero Velocity", "Force at Peak Power", "Concentric Impulse",
+    #   "RSI-modified (Imp-Mom)", "Eccentric Braking Impulse", "Abduction to Adduction Ratio",
+    #   "L Max Force", "R Max Force", "L Max Impulse", "R Max Impulse", "Max Imbalance",
+    #   "Recent Player Load", "Player Load Per Minute", "High Speed Distance (12 mph)",
+    #   "Sprint Distance (16 mph)", "Explosive Efforts", "Max Effort Acceleration",
+    #   "Max Effort Deceleration", "Max Vel", "Flying 10s"
+    # )
+    
     axis_order <- c(
       "Jump Height (Imp-Mom)", "Force at Zero Velocity", "Force at Peak Power", "Concentric Impulse",
-      "RSI-modified (Imp-Mom)", "Eccentric Braking Impulse", "Abduction to Adduction Ratio",
+      "RSI-modified (Imp-Mom)", "Eccentric Braking Impulse", "Abduction to Adduction Ratio", "Avg Max Force",
       "L Max Force", "R Max Force", "L Max Impulse", "R Max Impulse", "Max Imbalance",
+      "ISO: Avg Max Force", "ISO: L Max Force", "ISO: R Max Force",
+      "ISO: L Max Impulse", "ISO: R Max Impulse", "ISO: Max Imbalance",
       "Recent Player Load", "Player Load Per Minute", "High Speed Distance (12 mph)",
       "Sprint Distance (16 mph)", "Explosive Efforts", "Max Effort Acceleration",
       "Max Effort Deceleration", "Max Vel", "Flying 10s"
@@ -933,6 +1409,7 @@ server <- function(input, output, session) {
       radar_nord_metrics,
       radar_smartspeed_metrics
     ))
+    
     all_keys <- all_keys[!is.na(all_keys) & nzchar(all_keys)]
     
     updateSelectInput(session, "poscomp_radar_metrics", selected = all_keys)
@@ -990,7 +1467,10 @@ server <- function(input, output, session) {
     "Jump Height (Imp-Mom)", "RSI-modified (Imp-Mom)", "Force at Peak Power",
     "Force at Zero Velocity", "Eccentric Braking Impulse", "Concentric Impulse",
     "L Max Force", "R Max Force", "Avg Max Force",
-    "L Max Impulse", "R Max Impulse", "Nordbord Asymmetry (%)",
+    "L Max Impulse", "R Max Impulse", "Max Imbalance", "Impulse Imbalance",
+    "ISO Prone Avg Max Force",
+    "ISO Prone L Max Force", "ISO Prone R Max Force",
+    "ISO Prone L Max Impulse", "ISO Prone R Max Impulse", "ISO Prone Max Imbalance",
     "Total Distance", "Max Vel", "Max Effort Acceleration", "Max Effort Deceleration",
     "Total Player Load", "Player Load Per Minute", "ACWR",
     "Best Split Seconds",
@@ -998,6 +1478,7 @@ server <- function(input, output, session) {
     "Abduction to Adduction Ratio", "Max Abduction Force", "Max Adduction Force",
     "Abduction Asymmetry (%)", "Adduction Asymmetry (%)"
   )
+  
 
   output$roster_table <- renderDT({
     df <- roster_filtered()
@@ -1103,7 +1584,7 @@ server <- function(input, output, session) {
       pos_group       = "Position Group",
       class_year_base = "Class Year",
       class_year      = "Class Year",
-      `Nordbord Asymmetry (%)` = "Nordbord Asymmetry (%)"
+      `Max Imbalance` = "Nordic Asymmetry (%)"
     )
     disp_names <- gsub("Jump Height \\(Imp-Mom\\) in Inches", "Jump Height", disp_names)
     disp_names <- gsub("Jump Height \\(Imp-Mom\\)",           "Jump Height", disp_names)
@@ -1112,6 +1593,9 @@ server <- function(input, output, session) {
     disp_names <- gsub("^Best Split Seconds$", "Flying 10s",         disp_names)
     disp_names <- gsub("^Abduction Asymmetry \\(%\\)$", "Abduction Asymmetry (%)", disp_names)
     disp_names <- gsub("^Adduction Asymmetry \\(%\\)$", "Adduction Asymmetry (%)", disp_names)
+    disp_names <- gsub("^ISO Prone ", "ISO: ", disp_names)
+    
+    
     # ACWR stays as "ACWR"
 
     colnames(df_disp) <- disp_names
@@ -1192,7 +1676,11 @@ server <- function(input, output, session) {
     }
 
     # Nordbord + ForceFrame asymmetry coloring (orange >10%, red >15%)
+<<<<<<< HEAD
     for (asym_col in c("Nordbord Asymmetry (%)",
+=======
+    for (asym_col in c("Nordic Asymmetry",
+>>>>>>> e9a654b (Make radar plots use NCAA medians & pull in ISO Prone data)
                        "Abduction Asymmetry (%)",
                        "Adduction Asymmetry (%)")) {
       if (asym_col %in% names(df_disp)) {
@@ -1463,30 +1951,20 @@ server <- function(input, output, session) {
   observeEvent(input$photo_back_click,  { nm <- selected_player(); src <- find_player_photo(nm, "back");  show_photo_modal(src, paste0(nm, " — Back"))  })
 
   # ---------- Radar plots ----------
+
   output$radar_force_plot <- renderPlotly({
-    nm  <- selected_player()
-    pid <- roster_view %>% filter(player_name == nm) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
-    req(length(pid) == 1)
-    df <- roster_percentiles_long %>%
-      filter(player_id == pid, metric_key %in% radar_force_metrics) %>%
-      left_join(radar_force_labels, by = "metric_key") %>%
-      mutate(axis = radar_label) %>%
-      transmute(player_name = nm, axis, percentile)
-    render_plotly_radar(df, nm, "Force (position-group percentiles)")
+    nm <- selected_player()
+    req(!is.null(nm), nzchar(nm))
+    render_benchmark_radar(nm, force_qb_axes, "ForceDecks vs NCAA Median")
   })
-
+  
   output$radar_nord_plot <- renderPlotly({
-    nm  <- selected_player()
-    pid <- roster_view %>% filter(player_name == nm) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
-    req(length(pid) == 1)
-    df <- roster_percentiles_long %>%
-      filter(player_id == pid, metric_key %in% radar_nord_metrics) %>%
-      left_join(radar_nord_labels, by = "metric_key") %>%
-      mutate(axis = radar_label) %>%
-      transmute(player_name = nm, axis, percentile)
-    render_plotly_radar(df, nm, "NordBord (position-group percentiles)")
+    nm <- selected_player()
+    req(!is.null(nm), nzchar(nm))
+    render_benchmark_radar(nm, nord_qb_axes, "Hamstring & Hip Strength vs NCAA Median")
   })
-
+  
+  
   output$radar_catapult_plot <- renderPlotly({
     nm  <- selected_player()
     pid <- roster_view %>% filter(player_name == nm) %>% dplyr::slice_head(n = 1) %>% pull(player_id)
@@ -1496,7 +1974,7 @@ server <- function(input, output, session) {
       left_join(radar_catapult_labels, by = "metric_key") %>%
       mutate(axis = radar_label) %>%
       transmute(player_name = nm, axis, percentile)
-    render_plotly_radar(df, nm, "Catapult (position-group percentiles)")
+    render_plotly_radar(df, nm, "Catapult (team position-group percentiles)")
   })
 
   # ---------- Quick tags ----------
@@ -1655,11 +2133,30 @@ server <- function(input, output, session) {
       left_join(label_df, by = "metric_key") %>%
       mutate(radar_label = as.character(radar_label), col = if_else(is.na(radar_label) | !nzchar(radar_label), as.character(metric_key), radar_label)) %>%
       filter(!is.na(col), nzchar(as.character(col)))
+    
     out <- long %>%
       transmute(player_name = as.character(player_name), col = as.character(col), raw_value = as.numeric(raw_value)) %>%
       group_by(player_name, col) %>%
       summarise(raw_value = { v <- raw_value[!is.na(raw_value)]; if (length(v) == 0) NA_real_ else v[1] }, .groups = "drop") %>%
       tidyr::pivot_wider(names_from = col, values_from = raw_value, values_fill = NA_real_)
+    
+    selected_keys <- input$poscomp_radar_metrics
+    
+    if (!is.null(selected_keys) && length(selected_keys) > 0) {
+      selected_labels <- bind_rows(
+        radar_force_labels,
+        radar_nord_labels,
+        radar_catapult_labels,
+        radar_smartspeed_labels,
+        radar_lift_labels
+      ) %>%
+        filter(metric_key %in% selected_keys) %>%
+        pull(radar_label)
+      
+      out <- out %>%
+        select(any_of(c("player_name", selected_labels)))
+    }
+    
     if (HAS_ATH && ATH_KEY %in% names(roster_view)) {
       ath_df <- roster_view %>% filter(player_id %in% cohort$player_id) %>%
         select(player_name, !!ATH_KEY) %>% mutate(player_name = as.character(player_name)) %>%
@@ -1717,11 +2214,13 @@ server <- function(input, output, session) {
       nm <- gsub("Jump Height \\(Imp-Mom\\)", "Jump Height", nm)
       nm <- gsub("RSI-modified \\(Imp-Mom\\)", "RSI-modified", nm)
       nm <- gsub("\\(Imp-Mom\\)", "", nm); nm <- gsub(" in Inches", "", nm)
+      nm <- gsub("^ISO Prone ", "ISO: ", nm)
       trimws(nm)
     }
     new_names <- sapply(names(df_vals), clean_poscomp_header, USE.NAMES = FALSE)
     names(df_vals) <- as.character(new_names)
     
+
     # Reorder positional comparison columns by system/test/label, like the main table
     front_cols <- c("Player Name")
     
@@ -1742,6 +2241,7 @@ server <- function(input, output, session) {
           gsub("^Best Split Seconds$", "Flying 10s", .) %>%
           gsub("\\(Imp-Mom\\)", "", .) %>%
           gsub(" in Inches", "", .) %>%
+          gsub("^ISO Prone ", "ISO: ", .) %>%
           trimws(),
         system,
         test_type
@@ -1879,12 +2379,23 @@ server <- function(input, output, session) {
       return(plotly::plot_ly() %>% plotly::layout(title = "No valid metric data available for radar plot"))
     }
     
+    # axis_order <- c(
+    #   "Jump Height (Imp-Mom)", "Force at Zero Velocity", "Force at Peak Power", "Concentric Impulse",
+    #   "RSI-modified (Imp-Mom)", "Eccentric Braking Impulse", "Abduction to Adduction Ratio",
+    #   "L Max Force", "R Max Force", "L Max Impulse", "R Max Impulse", "Max Imbalance",
+    #   "Recent Player Load", "Player Load Per Minute", "High Speed Distance (12 mph)", "Sprint Distance (16 mph)",
+    #   "Explosive Efforts", "Max Effort Acceleration", "Max Effort Deceleration", "Max Vel", "Flying 10s"
+    # )
+
     axis_order <- c(
       "Jump Height (Imp-Mom)", "Force at Zero Velocity", "Force at Peak Power", "Concentric Impulse",
-      "RSI-modified (Imp-Mom)", "Eccentric Braking Impulse", "Abduction to Adduction Ratio",
+      "RSI-modified (Imp-Mom)", "Eccentric Braking Impulse", "Abduction to Adduction Ratio", "Avg Max Force",
       "L Max Force", "R Max Force", "L Max Impulse", "R Max Impulse", "Max Imbalance",
-      "Recent Player Load", "Player Load Per Minute", "High Speed Distance (12 mph)", "Sprint Distance (16 mph)",
-      "Explosive Efforts", "Max Effort Acceleration", "Max Effort Deceleration", "Max Vel", "Flying 10s"
+      "ISO: Avg Max Force", "ISO: L Max Force", "ISO: R Max Force",
+      "ISO: L Max Impulse", "ISO: R Max Impulse", "ISO: Max Imbalance",
+      "Recent Player Load", "Player Load Per Minute", "High Speed Distance (12 mph)",
+      "Sprint Distance (16 mph)", "Explosive Efforts", "Max Effort Acceleration",
+      "Max Effort Deceleration", "Max Vel", "Flying 10s"
     )
     
     axis_levels <- axis_order[axis_order %in% unique(long$axis)]
@@ -1945,7 +2456,7 @@ server <- function(input, output, session) {
         title = list(
           text = paste0(
             "Positional Comparison Radar",
-            "<br><span style='font-size:12px; color:#6b7280;'>Based on position-group percentiles</span>"
+            "<br><span style='font-size:12px; color:#6b7280;'>Based on team position-group percentiles</span>"
           ),
           y = 0.95
         ),
@@ -1970,35 +2481,27 @@ server <- function(input, output, session) {
                      polar = list(radialaxis = list(visible = FALSE), angularaxis = list(visible = FALSE)))
   }
 
+  
   output$compare_force_radar_plot <- renderPlotly({
-    nm2 <- input$compare_player; req(!is.null(nm2), nzchar(nm2))
-    pid2 <- roster_view %>% filter(player_name == nm2) %>% dplyr::slice_head(n = 1) %>% pull(player_id); req(length(pid2) == 1)
-    key_df <- vald_tests_long_ui %>% distinct(metric_key, source, metric_name, test_type) %>% mutate(system = source)
-    force_keys <- vapply(c("Jump Height (Imp-Mom) in Inches","RSI-modified","Force at Peak Power","Force at Zero Velocity","Eccentric Braking Impulse","Concentric Impulse"),
-                         function(nm) pick_metric_key_by_name("ForceDecks", nm, key_df), character(1))
-    force_keys <- force_keys[!is.na(force_keys)]
-    if (length(force_keys) < 3) return(make_empty_polar("Not enough Force metrics configured"))
-    df <- roster_percentiles_long %>% filter(player_id == pid2, metric_key %in% force_keys) %>%
-      left_join(key_df %>% distinct(metric_key, metric_name), by = "metric_key") %>%
-      mutate(metric_name = as.character(metric_name), metric_name = if_else(is.na(metric_name) | !nzchar(metric_name), "Unknown", metric_name)) %>%
-      transmute(player_name = as.character(nm2), axis = as.character(norm_metric(metric_name)), percentile = as.numeric(percentile)) %>%
-      filter(!is.na(axis), nzchar(axis), !is.na(percentile))
-    if (nrow(df) < 3) return(make_empty_polar("Not enough Force data available"))
-    render_plotly_radar(df, nm2, paste0("ForceDecks — ", nm2, " (position-group percentiles)"))
+    req(selected_player(), input$compare_player)
+
+    render_benchmark_radar_compare(
+      c(selected_player(), input$compare_player),
+      force_qb_axes,
+      "ForceDecks vs NCAA Median"
+    )
   })
 
   output$compare_nord_radar_plot <- renderPlotly({
-    nm2 <- input$compare_player; req(!is.null(nm2), nzchar(nm2))
-    pid2 <- roster_view %>% filter(player_name == nm2) %>% dplyr::slice_head(n = 1) %>% pull(player_id); req(length(pid2) == 1)
-    if (length(radar_nord_metrics) < 3) return(make_empty_polar("Not enough NordBord metrics configured"))
-    df <- roster_percentiles_long %>% filter(player_id == pid2, metric_key %in% radar_nord_metrics) %>%
-      left_join(radar_nord_labels, by = "metric_key") %>%
-      mutate(radar_label = as.character(radar_label), radar_label = if_else(is.na(radar_label) | !nzchar(radar_label), "Unknown", radar_label)) %>%
-      transmute(player_name = as.character(nm2), axis = as.character(radar_label), percentile = as.numeric(percentile)) %>%
-      filter(!is.na(axis), nzchar(axis), !is.na(percentile))
-    if (nrow(df) < 3) return(make_empty_polar("Not enough NordBord data available"))
-    render_plotly_radar(df, nm2, paste0("NordBord — ", nm2, " (position-group percentiles)"))
+    req(selected_player(), input$compare_player)
+    
+    render_benchmark_radar_compare(
+      c(selected_player(), input$compare_player),
+      nord_qb_axes,
+      "Hamstring & Hip Strength vs NCAA Median"
+    )
   })
+
 
   output$compare_catapult_radar_plot <- renderPlotly({
     nm2 <- input$compare_player; req(!is.null(nm2), nzchar(nm2))
@@ -2010,7 +2513,7 @@ server <- function(input, output, session) {
       transmute(player_name = as.character(nm2), axis = as.character(radar_label), percentile = as.numeric(percentile)) %>%
       filter(!is.na(axis), nzchar(axis), !is.na(percentile))
     if (nrow(df) < 3) return(make_empty_polar("Not enough Catapult data available"))
-    render_plotly_radar(df, nm2, paste0("Catapult — ", nm2, " (position-group percentiles)"))
+    render_plotly_radar(df, nm2, paste0("Catapult — ", nm2, " (team position-group percentiles)"))
   })
 
   # ---------------------------
