@@ -963,6 +963,7 @@ ui <- navbarPage(
                <b>Athlete Standing Weight</b> (most recent),
                <b>Recent Player Load</b> (most recent session),
                <b>ACWR</b> (last 7 vs 28 days), and
+               <b>ISO Asymmetry</b>,
                <b>Nordic Asymmetry</b>, <b>Abduction Asymmetry</b>, and
                <b>Adduction Asymmetry</b> (most recent test session).")
         ),
