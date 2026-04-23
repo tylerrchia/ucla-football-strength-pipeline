@@ -620,7 +620,7 @@ ath_tooltip_text <- paste(
   "RSI-modified 10%",
   "Eccentric Braking Impulse 10%",
   "Avg Max Force (L/R) 15%",
-  "Max Imbalance 5% (lower is better)",
+  "Nordic Asymmetry 5% (lower is better)",
   "Max Velocity 10%",
   "Flying 10s 10%",
   "Max Effort Acceleration 7.5%",
@@ -729,13 +729,13 @@ nord_metric_names <- c(
   "R Max Force",
   "L Max Impulse",
   "R Max Impulse",
-  "Max Imbalance",
+  "Nordic Asymmetry (%)",
   "ISO Prone Avg Max Force",
   "ISO Prone L Max Force",
   "ISO Prone R Max Force",
   "ISO Prone L Max Impulse",
   "ISO Prone R Max Impulse",
-  "ISO Prone Max Imbalance"
+  "ISO Asymmetry (%)"
 )
 
 
@@ -760,7 +760,7 @@ radar_nord_labels <- tibble::tibble(
   metric_key  = unname(nord_metric_keys_map),
   radar_label = names(nord_metric_keys_map)
 ) %>% filter(!is.na(metric_key)) %>%
-  mutate(radar_label = gsub("^ISO Prone ", "ISO: ", radar_label))
+  mutate(radar_label = gsub("^ISO Prone ", "ISO ", radar_label))
 
 catapult_metric_names <- c(
   "Player Load Per Minute", "Max Vel", "Max Effort Acceleration", "Max Effort Deceleration",
@@ -795,7 +795,7 @@ radar_lift_labels    <- tibble::tibble(
 nord_qb_axes <- tibble::tribble(
   ~axis, ~source_metric, ~invert,
   "Avg Max Force (NordBord)", "Avg Max Force", FALSE,
-  "Asymmetry (NordBord)", "Max Imbalance", TRUE,
+  "Asymmetry (NordBord)", "Nordic Asymmetry (%)", TRUE,
   "Hip ADD:ABD Ratio (ForceFrame)", "Abduction to Adduction Ratio", FALSE
 )
 
@@ -1322,9 +1322,9 @@ server <- function(input, output, session) {
     axis_order <- c(
       "Jump Height (Imp-Mom)", "Force at Zero Velocity", "Force at Peak Power", "Concentric Impulse",
       "RSI-modified (Imp-Mom)", "Eccentric Braking Impulse", "Abduction to Adduction Ratio", "Avg Max Force",
-      "L Max Force", "R Max Force", "L Max Impulse", "R Max Impulse", "Max Imbalance",
-      "ISO: Avg Max Force", "ISO: L Max Force", "ISO: R Max Force",
-      "ISO: L Max Impulse", "ISO: R Max Impulse", "ISO: Max Imbalance",
+      "L Max Force", "R Max Force", "L Max Impulse", "R Max Impulse", "Nordic Asymmetry (%)",
+      "ISO Avg Max Force", "ISO L Max Force", "ISO R Max Force",
+      "ISO L Max Impulse", "ISO R Max Impulse", "ISO Asymmetry (%)",
       "Recent Player Load", "Player Load Per Minute", "High Speed Distance (12 mph)",
       "Sprint Distance (16 mph)", "Explosive Efforts", "Max Effort Acceleration",
       "Max Effort Deceleration", "Max Vel", "Flying 10s"
@@ -1467,10 +1467,10 @@ server <- function(input, output, session) {
     "Jump Height (Imp-Mom)", "RSI-modified (Imp-Mom)", "Force at Peak Power",
     "Force at Zero Velocity", "Eccentric Braking Impulse", "Concentric Impulse",
     "L Max Force", "R Max Force", "Avg Max Force",
-    "L Max Impulse", "R Max Impulse", "Max Imbalance", "Impulse Imbalance",
+    "L Max Impulse", "R Max Impulse", "Nordic Asymmetry (%)", "Impulse Imbalance",
     "ISO Prone Avg Max Force",
     "ISO Prone L Max Force", "ISO Prone R Max Force",
-    "ISO Prone L Max Impulse", "ISO Prone R Max Impulse", "ISO Prone Max Imbalance",
+    "ISO Prone L Max Impulse", "ISO Prone R Max Impulse", "ISO Asymmetry (%)",
     "Total Distance", "Max Vel", "Max Effort Acceleration", "Max Effort Deceleration",
     "Total Player Load", "Player Load Per Minute", "ACWR",
     "Best Split Seconds",
@@ -1583,8 +1583,7 @@ server <- function(input, output, session) {
       pos_position    = "Position",
       pos_group       = "Position Group",
       class_year_base = "Class Year",
-      class_year      = "Class Year",
-      `Max Imbalance` = "Nordic Asymmetry (%)"
+      class_year      = "Class Year"
     )
     disp_names <- gsub("Jump Height \\(Imp-Mom\\) in Inches", "Jump Height", disp_names)
     disp_names <- gsub("Jump Height \\(Imp-Mom\\)",           "Jump Height", disp_names)
@@ -1593,8 +1592,7 @@ server <- function(input, output, session) {
     disp_names <- gsub("^Best Split Seconds$", "Flying 10s",         disp_names)
     disp_names <- gsub("^Abduction Asymmetry \\(%\\)$", "Abduction Asymmetry (%)", disp_names)
     disp_names <- gsub("^Adduction Asymmetry \\(%\\)$", "Adduction Asymmetry (%)", disp_names)
-    disp_names <- gsub("^ISO Prone ", "ISO: ", disp_names)
-    
+    disp_names <- gsub("^ISO Prone ", "ISO ", disp_names)    
     
     # ACWR stays as "ACWR"
 
@@ -1678,6 +1676,7 @@ server <- function(input, output, session) {
     # Nordbord + ForceFrame asymmetry coloring (orange >10%, red >15%)
 
     for (asym_col in c("Nordic Asymmetry (%)",
+                       "ISO Asymmetry (%)",
                        "Abduction Asymmetry (%)",
                        "Adduction Asymmetry (%)")) {
       if (asym_col %in% names(df_disp)) {
@@ -2211,7 +2210,7 @@ server <- function(input, output, session) {
       nm <- gsub("Jump Height \\(Imp-Mom\\)", "Jump Height", nm)
       nm <- gsub("RSI-modified \\(Imp-Mom\\)", "RSI-modified", nm)
       nm <- gsub("\\(Imp-Mom\\)", "", nm); nm <- gsub(" in Inches", "", nm)
-      nm <- gsub("^ISO Prone ", "ISO: ", nm)
+      nm <- gsub("^ISO Prone ", "ISO ", nm)
       trimws(nm)
     }
     new_names <- sapply(names(df_vals), clean_poscomp_header, USE.NAMES = FALSE)
@@ -2238,7 +2237,7 @@ server <- function(input, output, session) {
           gsub("^Best Split Seconds$", "Flying 10s", .) %>%
           gsub("\\(Imp-Mom\\)", "", .) %>%
           gsub(" in Inches", "", .) %>%
-          gsub("^ISO Prone ", "ISO: ", .) %>%
+          gsub("^ISO Prone ", "ISO ", .) %>%
           trimws(),
         system,
         test_type
@@ -2387,9 +2386,9 @@ server <- function(input, output, session) {
     axis_order <- c(
       "Jump Height (Imp-Mom)", "Force at Zero Velocity", "Force at Peak Power", "Concentric Impulse",
       "RSI-modified (Imp-Mom)", "Eccentric Braking Impulse", "Abduction to Adduction Ratio", "Avg Max Force",
-      "L Max Force", "R Max Force", "L Max Impulse", "R Max Impulse", "Max Imbalance",
-      "ISO: Avg Max Force", "ISO: L Max Force", "ISO: R Max Force",
-      "ISO: L Max Impulse", "ISO: R Max Impulse", "ISO: Max Imbalance",
+      "L Max Force", "R Max Force", "L Max Impulse", "R Max Impulse", "Nordic Asymmetry (%)",
+      "ISO Avg Max Force", "ISO L Max Force", "ISO R Max Force",
+      "ISO L Max Impulse", "ISO R Max Impulse", "ISO Asymmetry (%)",
       "Recent Player Load", "Player Load Per Minute", "High Speed Distance (12 mph)",
       "Sprint Distance (16 mph)", "Explosive Efforts", "Max Effort Acceleration",
       "Max Effort Deceleration", "Max Vel", "Flying 10s"
