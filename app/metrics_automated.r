@@ -140,7 +140,7 @@ pct_rank_100 <- function(x) {
 }
 
 is_flip_metric <- function(metric_key) {
-  grepl("Imbalance|Deceleration|Best Split Seconds", metric_key, ignore.case = TRUE)
+  grepl("Imbalance|Deceleration|Best Split Seconds|Asymmetry", metric_key, ignore.case = TRUE)
 }
 
 latest_only_metric_name <- function(metric_key) {
@@ -148,7 +148,7 @@ latest_only_metric_name <- function(metric_key) {
   nm <- str_replace_all(nm, "\\s*\\([^\\)]+\\)\\s*$", "")
   nm <- str_replace_all(nm, "\\s*\\[[^\\]]+\\]\\s*$", "")
   nm %in% c("Total Player Load", "Total Distance", "Athlete Standing Weight",
-            "Max Imbalance", "ISO Prone Max Imbalance", "Abduction Asymmetry (%)", "Adduction Asymmetry (%)")
+            "Nordic Asymmetry", "ISO Asymmetry", "Abduction Asymmetry", "Adduction Asymmetry")
 }
 
 `%||%` <- function(a, b) if (!is.null(a) && length(a) > 0 && !all(is.na(a))) a else b
@@ -337,7 +337,9 @@ ingest_nordboard <- function(path) {
         TRUE ~ metric_raw
       ),
       metric_name = case_when(
+        str_to_lower(str_squish(test_type)) == "iso prone" & metric_name_base == "Max Imbalance" ~ "ISO Asymmetry (%)",
         str_to_lower(str_squish(test_type)) == "iso prone" ~ paste("ISO Prone", metric_name_base),
+        metric_name_base == "Max Imbalance" ~ "Nordic Asymmetry (%)",
         TRUE ~ metric_name_base
       ),
       units = case_when(
@@ -1177,7 +1179,7 @@ k_ebi  <- find_first_existing("ForceDecks", c("Eccentric Braking Impulse"))
 k_pp   <- find_first_existing("ForceDecks", c("Force at Peak Power"))
 k_lmf  <- find_first_existing("NordBord",   c("L Max Force"))
 k_rmf  <- find_first_existing("NordBord",   c("R Max Force"))
-k_imb  <- find_first_existing("NordBord",   c("Max Imbalance"))
+k_imb  <- find_first_existing("NordBord",   c("Nordic Asymmetry (%)", "Max Imbalance"))
 k_maxv <- find_first_existing("Catapult",   c("Max Vel", "Max Velocity", "Max V"))
 k_acc  <- find_first_existing("Catapult",   c("Max Effort Acceleration", "Max Effort Accel"))
 k_dec  <- find_first_existing("Catapult",   c("Max Effort Deceleration", "Max Effort Decel"))
