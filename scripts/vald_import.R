@@ -11,6 +11,7 @@ dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
 forcedeck_FINAL <- NULL
 nordbord_FINAL  <- NULL
+forceframe_FINAL  <- NULL
 
 # get_config()
 
@@ -272,7 +273,8 @@ if (is.null(forceframe_tests) || nrow(forceframe_tests) == 0) {
 
 forcedeck_path <- file.path(output_dir, "forcedecks.csv")
 
-if (file.exists(forcedeck_path)) {
+if (!is.null(forcedeck_FINAL)) {
+  if (file.exists(forcedeck_path)) {
   forcedeck_existing <- read_csv(forcedeck_path, show_col_types = FALSE)
   
   forcedeck_FINAL <- bind_rows(
@@ -280,13 +282,16 @@ if (file.exists(forcedeck_path)) {
     forcedeck_FINAL
   ) %>%
     distinct(profileId, testId, date, .keep_all = TRUE)
+  }
+  
+  write_csv(forcedeck_FINAL, forcedeck_path)
 }
 
-write_csv(forcedeck_FINAL, forcedeck_path)
 
 nordbord_path <- file.path(output_dir, "nordbord.csv")
 
-if (file.exists(nordbord_path)) {
+if (!is.null(nordbord_FINAL)) {
+  if (file.exists(nordbord_path)) {
   nordbord_existing <- read_csv(nordbord_path, show_col_types = FALSE)
   
   nordbord_FINAL <- bind_rows(
@@ -294,20 +299,23 @@ if (file.exists(nordbord_path)) {
     nordbord_FINAL
   ) %>%
     distinct(profileId, testId, date, .keep_all = TRUE)
-}
+  }
 
-write_csv(nordbord_FINAL, nordbord_path)
+  write_csv(nordbord_FINAL, nordbord_path)
+}
 
 forceframe_path <- file.path(output_dir, "forceframe.csv")
 
-if (file.exists(forceframe_path)) {
-  forceframe_existing <- read_csv(forceframe_path, show_col_types = FALSE)
+if (!is.null(forceframe_FINAL)) {
+  if (file.exists(forceframe_path)) {
+    forceframe_existing <- read_csv(forceframe_path, show_col_types = FALSE)
+    
+    forceframe_FINAL <- bind_rows(
+      forceframe_existing,
+      forceframe_FINAL
+    ) %>%
+      distinct(profileId, testPositionName, date, .keep_all = TRUE)
+  }
   
-  forceframe_FINAL <- bind_rows(
-    forceframe_existing,
-    forceframe_FINAL
-  ) %>%
-    distinct(profileId, testPositionName, date, .keep_all = TRUE)
+  write_csv(forceframe_FINAL, forceframe_path)
 }
-
-write_csv(forceframe_FINAL, forceframe_path)
