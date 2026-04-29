@@ -1563,7 +1563,13 @@ server <- function(input, output, session) {
 
     name_with_headshot <- function(player_name) {
       src <- find_player_headshot(player_name)
-      if (is.na(src) || !nzchar(src)) return(player_name)
+      if (is.na(src) || !nzchar(src)) {
+        return(sprintf(
+          "<div data-order='%s'>%s</div>",
+          htmltools::htmlEscape(player_name),
+          htmltools::htmlEscape(player_name)
+        ))
+      }
       sprintf(
         "<div data-order='%s' style='display:flex;align-items:center;gap:8px;'>
          <img src='%s' style='width:32px;height:32px;border-radius:50%%;object-fit:cover;'/>
@@ -1571,6 +1577,7 @@ server <- function(input, output, session) {
         htmltools::htmlEscape(player_name), src, htmltools::htmlEscape(player_name)
       )
     }
+      
     df_disp <- df_disp %>%
       mutate(player_name = vapply(player_name, name_with_headshot, character(1)))
 
