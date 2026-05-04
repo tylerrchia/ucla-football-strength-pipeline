@@ -31,6 +31,15 @@ if missing:
 profiles = profiles.rename(columns={'profileid': 'profileId'})
 
 # --------------------------------------------------------------------------------------------------
+def request_with_retry(method, url, max_attempts=3, **kwargs):
+    for attempt in range(1, max_attempts + 1):
+        response = requests.request(method, url, **kwargs)
+        if response.status_code == 200:
+            return response
+        print(f"Attempt {attempt} failed: {response.status_code} - {response.text}")
+        if attempt < max_attempts:
+            time.sleep(30 * attempt)  # 30s, then 60s
+    raise Exception(f"All {max_attempts} attempts failed for {url}")
 
 token_cache = {
     "access_token": None,
@@ -59,7 +68,7 @@ def get_token(client_id, client_secret):
         "audience": "vald-api-external"
     }
 
-    response = requests.post(url, data=payload)
+    response = request_with_retry("POST", url, data=payload)
 
     if response.status_code != 200:
         raise Exception(f"Token request failed: {response.status_code} - {response.text}")
@@ -109,7 +118,7 @@ def pull_last_7_days_tests(team_id: str) -> pd.DataFrame:
             "page": page
         }
 
-        response = requests.get(base_url, headers=headers, params=params)
+        response = request_with_retry("GET", base_url, headers=headers, params=params)
 
         if response.status_code != 200:
             raise Exception(f"API error {response.status_code}: {response.text}")
