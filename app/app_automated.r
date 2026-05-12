@@ -2093,11 +2093,41 @@ server <- function(input, output, session) {
       }
     }
     p <- ggplot() +
-      geom_line(data = plot_players, aes(x = date, y = metric_value, color = Line, group = Line, text = player_name), linewidth = 1) +
-      geom_point(data = plot_players, aes(x = date, y = metric_value, color = Line, text = player_name), size = 2)
+      geom_line(data = plot_players, aes(x = date, y = metric_value, color = Line, group = Line, text = paste0(
+        pretty_mk, ": ",
+        round(metric_value, 2)
+      )), linewidth = 1) +
+      geom_point(data = plot_players, aes(x = date, y = metric_value, color = Line, text = paste0(
+        pretty_mk, ": ",
+        round(metric_value, 2)
+      )), size = 2)
     if (!is.null(pos_avg) && nrow(pos_avg) > 0) {
-      p <- p + geom_point(data = pos_avg, aes(x = date, y = metric_value, color = Line), size = 2.8)
-      if (nrow(pos_avg) >= 2) p <- p + geom_line(data = pos_avg, aes(x = date, y = metric_value, color = Line, group = Line), linewidth = 1, linetype = "dashed", na.rm = TRUE)
+      p <- p + geom_point(
+        data = pos_avg,
+        aes(
+          x = date,
+          y = metric_value,
+          color = Line,
+          text = paste0(Line, ": ", round(metric_value, 2))
+        ),
+        size = 2.8
+      )
+      
+      if (nrow(pos_avg) >= 2) {
+        p <- p + geom_line(
+          data = pos_avg,
+          aes(
+            x = date,
+            y = metric_value,
+            color = Line,
+            group = Line,
+            text = paste0(Line, ": ", round(metric_value, 2))
+          ),
+          linewidth = 1,
+          linetype = "dashed",
+          na.rm = TRUE
+        )
+      }
     }
     if (!is.null(pos_pts) && nrow(pos_pts) > 0) p <- p + geom_point(data = pos_pts, aes(x = date, y = metric_value, text = player_name), inherit.aes = FALSE, alpha = 0.25, size = 2)
     p <- p + theme_minimal(base_size = 12) + labs(x = "Date", y = "Value", color = NULL, title = paste(nm, "—", pretty_mk)) + theme(legend.position = "bottom")
