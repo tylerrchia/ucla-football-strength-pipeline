@@ -2130,8 +2130,30 @@ server <- function(input, output, session) {
       }
     }
     if (!is.null(pos_pts) && nrow(pos_pts) > 0) p <- p + geom_point(data = pos_pts, aes(x = date, y = metric_value, text = player_name), inherit.aes = FALSE, alpha = 0.25, size = 2)
-    p <- p + theme_minimal(base_size = 12) + labs(x = "Date", y = "Value", color = NULL, title = paste(nm, "—", pretty_mk)) + theme(legend.position = "bottom")
-    ggplotly(p, tooltip = "text")
+    p <- p +
+      theme_minimal(base_size = 12) +
+      labs(
+        x = NULL,
+        y = "Value",
+        color = NULL,
+        title = paste(nm, "—", pretty_mk)
+      ) +
+      theme(
+        legend.position = "bottom",
+        legend.margin = margin(t = 8),
+        plot.margin = margin(t = 10, r = 20, b = 55, l = 10)
+      )
+    
+    ggplotly(p, tooltip = "text") %>%
+      layout(
+        legend = list(
+          orientation = "h",
+          x = 0.5,
+          xanchor = "center",
+          y = -0.22
+        ),
+        margin = list(b = 90)
+      )
   })
 
   # ---------- Positional comparison table ----------
