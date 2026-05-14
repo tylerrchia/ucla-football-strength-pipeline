@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import requests
 import pandas as pd
@@ -9,10 +10,15 @@ clientId = os.getenv("VALD_CLIENT_ID")
 clientSecret = os.getenv("VALD_CLIENT_SECRET")
 team_id = os.getenv("VALD_TENANT_ID")
 
+print(f"[smartspeed] team_id (VALD_TENANT_ID): {team_id}")
+print(f"[smartspeed] client_id present: {bool(clientId)}")
+print(f"[smartspeed] client_secret present: {bool(clientSecret)}")
+
 # read in profiles for team
 output_dir = os.getenv("DATA_OUTPUT_DIR", "data")
 os.makedirs(output_dir, exist_ok=True)
 profiles_path = os.path.join(output_dir, "profiles_with_groups.csv")
+print(f"[smartspeed] Reading profiles from: {profiles_path}")
 profiles = pd.read_csv(profiles_path)
 
 # normalize column names to lowercase to handle any casing inconsistencies
@@ -29,6 +35,7 @@ if missing:
 
 # rename to match expected casing used throughout the script
 profiles = profiles.rename(columns={'profileid': 'profileId'})
+print(f"[smartspeed] Loaded {len(profiles)} profiles")
 
 # --------------------------------------------------------------------------------------------------
 def request_with_retry(method, url, max_attempts=3, **kwargs):
@@ -103,9 +110,10 @@ def pull_last_7_days_tests(team_id: str) -> pd.DataFrame:
     page = 1
 
     base_url = f"https://prd-use-api-extsmartspeed.valdperformance.com/v1/team/{team_id}/tests"
+    print(f"[smartspeed] API URL: {base_url}")
 
     test_from_utc = get_last_7_days_utc()
-    print(f"Pulling tests from: {test_from_utc}")
+    print(f"[smartspeed] Pulling tests from: {test_from_utc}")
 
     while True:
         headers = {
@@ -123,24 +131,54 @@ def pull_last_7_days_tests(team_id: str) -> pd.DataFrame:
         if response.status_code != 200:
             raise Exception(f"API error {response.status_code}: {response.text}")
 
-        data = response.json()
+        # Log raw response structure on first page to diagnose format issues
+        if page == 1:
+            raw = response.json()
+            print(f"[smartspeed] Page 1 raw response type: {type(raw).__name__}")
+            if isinstance(raw, dict):
+                print(f"[smartspeed] Page 1 response keys: {list(raw.keys())}")
+                print(f"[smartspeed] WARNING: Expected a list but got a dict — API response format may have changed")
+                # attempt to extract a list from common wrapper keys
+                for key in ("results", "data", "tests", "items", "records"):
+                    if key in raw and isinstance(raw[key], list):
+                        print(f"[smartspeed] Found records under key '{key}', using that")
+                        data = raw[key]
+                        break
+                else:
+                    print(f"[smartspeed] Could not find a list in the response — exiting with no data")
+                    sys.exit(0)
+            elif isinstance(raw, list):
+                data = raw
+            else:
+                print(f"[smartspeed] Unexpected response type: {type(raw).__name__} — exiting")
+                sys.exit(0)
+        else:
+            data = response.json()
+            if isinstance(data, dict):
+                for key in ("results", "data", "tests", "items", "records"):
+                    if key in data and isinstance(data[key], list):
+                        data = data[key]
+                        break
 
         if not data:
+            print(f"[smartspeed] Page {page} returned empty — done paginating")
             break
 
         all_data.extend(data)
-        print(f"Pulled page {page} ({len(data)} records)")
+        print(f"[smartspeed] Pulled page {page} ({len(data)} records)")
         page += 1
 
-    print(f"Total records pulled (last 7 days): {len(all_data)}")
+    print(f"[smartspeed] Total records pulled (last 7 days): {len(all_data)}")
     return pd.DataFrame(all_data)
 
 df = pull_last_7_days_tests(team_id)
 
-# exit early if no new data
 if df.empty:
-    print("No new tests in the last 7 days. Exiting.")
-    exit(0)
+    print("[smartspeed] No new tests returned by the API in the last 7 days. Exiting.")
+    print("[smartspeed] Check: correct team_id? SmartSpeed credentials valid? Tests synced to API?")
+    sys.exit(0)
+
+print(f"[smartspeed] Columns returned by API: {list(df.columns)}")
 
 # if column is string, convert to dict
 df['runningSummaryFields'] = df['runningSummaryFields'].apply(
@@ -172,8 +210,18 @@ profiles['profileId'] = (
     .str.lower()
 )
 
+print(f"[smartspeed] Unique profileIds from API: {df['profileId'].nunique()}")
+print(f"[smartspeed] Unique profileIds in profiles: {profiles['profileId'].nunique()}")
+
 # filter to only keep football players
 df_filtered = df[df['profileId'].isin(profiles['profileId'])]
+print(f"[smartspeed] Records matching football player profiles: {len(df_filtered)}")
+
+if df_filtered.empty:
+    print("[smartspeed] WARNING: API returned data but none of the profileIds matched profiles_with_groups.csv")
+    print(f"[smartspeed] Sample profileIds from API: {df['profileId'].head(5).tolist()}")
+    print(f"[smartspeed] Sample profileIds from profiles: {profiles['profileId'].head(5).tolist()}")
+    sys.exit(0)
 
 # add name column based on profileId
 df_filtered = df_filtered.merge(
@@ -186,7 +234,13 @@ df_filtered = df_filtered.merge(
 cols = ['name'] + [col for col in df_filtered.columns if col != 'name']
 df_filtered = df_filtered[cols]
 
-df_filtered = df_filtered.drop(columns=['additionalOptionsFields', 'jumpingSummaryFields', 'groupUnderTestId'])
+# drop columns that are not needed (ignore if missing, e.g. if API changes)
+df_filtered = df_filtered.drop(
+    columns=['additionalOptionsFields', 'jumpingSummaryFields', 'groupUnderTestId'],
+    errors='ignore'
+)
+
+print(f"[smartspeed] Records after profile filter and column drops: {len(df_filtered)}")
 
 # --------------------------------------------------------------------------------------------------
 
@@ -195,13 +249,17 @@ file_path = os.path.join(output_dir, "smartspeed.csv")
 
 if os.path.exists(file_path):
     existing_df = pd.read_csv(file_path)
+    print(f"[smartspeed] Existing CSV has {len(existing_df)} rows")
 
     combined_df = (
         pd.concat([existing_df, df_filtered], ignore_index=True)
         .drop_duplicates(subset=["profileId", "testResultId", "testDateUtc"], keep="last")
     )
 else:
+    print("[smartspeed] No existing CSV found — creating from scratch")
     combined_df = df_filtered
+
+print(f"[smartspeed] Combined rows after dedup on testResultId+testDateUtc: {len(combined_df)}")
 
 # clean data for wrong test type
 if "velocityFields.distance" in combined_df.columns:
@@ -255,4 +313,8 @@ combined_df = combined_df.drop_duplicates(
     keep="first"
 )
 
+print(f"[smartspeed] Final rows after best-per-day dedup: {len(combined_df)}")
+print(f"[smartspeed] Date range in output: {combined_df['testDate'].min()} to {combined_df['testDate'].max()}")
+
 combined_df.to_csv(file_path, index=False)
+print(f"[smartspeed] Wrote {len(combined_df)} rows to {file_path}")
