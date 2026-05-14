@@ -10,7 +10,6 @@ clientId = os.getenv("VALD_CLIENT_ID")
 clientSecret = os.getenv("VALD_CLIENT_SECRET")
 team_id = os.getenv("VALD_TENANT_ID")
 
-print(f"[smartspeed] team_id (VALD_TENANT_ID): {team_id}")
 print(f"[smartspeed] client_id present: {bool(clientId)}")
 print(f"[smartspeed] client_secret present: {bool(clientSecret)}")
 
