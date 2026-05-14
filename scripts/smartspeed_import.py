@@ -10,6 +10,7 @@ clientId = os.getenv("VALD_CLIENT_ID")
 clientSecret = os.getenv("VALD_CLIENT_SECRET")
 team_id = os.getenv("VALD_TENANT_ID")
 
+print(f"[smartspeed] team_id (VALD_TENANT_ID): {team_id}")
 print(f"[smartspeed] client_id present: {bool(clientId)}")
 print(f"[smartspeed] client_secret present: {bool(clientSecret)}")
 
@@ -273,9 +274,10 @@ if "velocityFields.distance" in combined_df.columns:
         "testName"
     ] = "Flying 10s"
 
-# take the best test result for a given player on a given date
-# ensure datetime format
-combined_df["testDateUtc"] = pd.to_datetime(combined_df["testDateUtc"], errors="coerce")
+# parse all timestamps as UTC so naive CSV strings and timezone-aware API strings
+# are unified — without utc=True, pandas coerces the timezone-aware rows to NaT
+# when mixed with naive rows, silently dropping all new data from the API
+combined_df["testDateUtc"] = pd.to_datetime(combined_df["testDateUtc"], utc=True, errors="coerce")
 
 # create date-only column (removes time)
 combined_df["testDate"] = combined_df["testDateUtc"].dt.date
@@ -286,11 +288,13 @@ combined_df["bestSplitSeconds"] = pd.to_numeric(
     errors="coerce"
 )
 
-# remove reps before 2/6/26
-cutoff_date = pd.Timestamp("2026-02-06")
+# remove reps before 2/6/26 — cutoff must be UTC-aware to match the column
+cutoff_date = pd.Timestamp("2026-02-06", tz="UTC")
 combined_df = combined_df[
     combined_df["testDateUtc"] >= cutoff_date
 ]
+
+print(f"[smartspeed] Rows after cutoff filter (>= {cutoff_date.date()}): {len(combined_df)}")
 
 # remove Flying 10s reps where bestSplitSeconds > 2
 combined_df = combined_df[
