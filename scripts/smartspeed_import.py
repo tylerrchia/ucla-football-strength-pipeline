@@ -124,13 +124,6 @@ def pull_last_7_days_tests(team_id: str) -> pd.DataFrame:
                 data = raw
             else:
                 sys.exit(0)
-            # DEBUG: dump the first record so we can see actual API field types/values
-            if data:
-                first = data[0]
-                print(f"[smartspeed] DEBUG first record keys: {list(first.keys())}")
-                print(f"[smartspeed] DEBUG first record testDateUtc: {first.get('testDateUtc')!r} (type: {type(first.get('testDateUtc')).__name__})")
-                print(f"[smartspeed] DEBUG first record testName: {first.get('testName')!r}")
-                print(f"[smartspeed] DEBUG first record profileId: {first.get('profileId')!r}")
         else:
             data = response.json()
             if isinstance(data, dict):
@@ -156,17 +149,6 @@ if df.empty:
 
 print(f"[smartspeed] Columns returned by API: {list(df.columns)}")
 
-# DEBUG: examine testDateUtc straight from the API DataFrame BEFORE any processing
-print(f"[smartspeed] DEBUG df['testDateUtc'].dtype: {df['testDateUtc'].dtype}")
-print(f"[smartspeed] DEBUG df['testDateUtc'] first 5 raw values: {df['testDateUtc'].head(5).tolist()}")
-print(f"[smartspeed] DEBUG df['testDateUtc'] null count: {df['testDateUtc'].isna().sum()}")
-
-# try parsing the API testDateUtc independently to see if utc=True works on it alone
-test_parse = pd.to_datetime(df['testDateUtc'], utc=True, errors='coerce')
-print(f"[smartspeed] DEBUG parsed API testDateUtc dtype: {test_parse.dtype}")
-print(f"[smartspeed] DEBUG parsed API testDateUtc NaT count: {test_parse.isna().sum()} / {len(test_parse)}")
-print(f"[smartspeed] DEBUG parsed API testDateUtc first 3: {test_parse.head(3).tolist()}")
-
 # if column is string, convert to dict
 df['runningSummaryFields'] = df['runningSummaryFields'].apply(
     lambda x: ast.literal_eval(x) if isinstance(x, str) else x
@@ -177,16 +159,6 @@ df = pd.concat(
      running_expanded],
     axis=1
 )
-
-# DEBUG: check testDateUtc after json_normalize/concat
-print(f"[smartspeed] DEBUG after json_normalize, df['testDateUtc'].dtype: {df['testDateUtc'].dtype if 'testDateUtc' in df.columns else 'MISSING'}")
-if 'testDateUtc' in df.columns:
-    # if duplicate columns, df['testDateUtc'] returns a DataFrame
-    col = df['testDateUtc']
-    if isinstance(col, pd.DataFrame):
-        print(f"[smartspeed] DEBUG WARNING: testDateUtc is duplicated! shape: {col.shape}")
-    else:
-        print(f"[smartspeed] DEBUG testDateUtc first 3 after normalize: {col.head(3).tolist()}")
 
 # normalize column format
 df['profileId'] = df['profileId'].astype(str).str.strip().str.lower()
@@ -211,18 +183,23 @@ df_filtered = df_filtered.drop(
 
 print(f"[smartspeed] Records after profile filter and column drops: {len(df_filtered)}")
 
-# DEBUG: testDateUtc in df_filtered right before concat with existing
-print(f"[smartspeed] DEBUG df_filtered['testDateUtc'] dtype: {df_filtered['testDateUtc'].dtype}")
-print(f"[smartspeed] DEBUG df_filtered['testDateUtc'] first 3: {df_filtered['testDateUtc'].head(3).tolist()}")
+# The API returns testDateUtc as naive strings (no timezone, e.g. '2026-05-19T16:51:37').
+# Localize to UTC here so the column is datetime64[us, UTC] before concat.
+# This avoids the pandas 3.0.1 bug where pd.to_datetime(mixed_naive+aware, utc=True)
+# converts NAIVE strings to NaT instead of the aware ones.
+df_filtered = df_filtered.copy()
+df_filtered["testDateUtc"] = pd.to_datetime(
+    df_filtered["testDateUtc"], errors="coerce"
+).dt.tz_localize("UTC")
+print(f"[smartspeed] API testDateUtc parsed: {df_filtered['testDateUtc'].notna().sum()} / {len(df_filtered)} non-null")
 
 file_path = os.path.join(output_dir, "smartspeed.csv")
 
 if os.path.exists(file_path):
     existing_df = pd.read_csv(file_path)
     print(f"[smartspeed] Existing CSV has {len(existing_df)} rows")
-    # DEBUG: testDateUtc in existing_df from CSV
-    print(f"[smartspeed] DEBUG existing_df['testDateUtc'] dtype: {existing_df['testDateUtc'].dtype}")
-    print(f"[smartspeed] DEBUG existing_df['testDateUtc'] first 3: {existing_df['testDateUtc'].head(3).tolist()}")
+    # Existing CSV has UTC-aware strings (e.g. '2026-02-06 15:58:17+00:00'); utc=True handles them correctly.
+    existing_df["testDateUtc"] = pd.to_datetime(existing_df["testDateUtc"], utc=True, errors="coerce")
 
     combined_df = (
         pd.concat([existing_df, df_filtered], ignore_index=True)
@@ -232,12 +209,6 @@ else:
     combined_df = df_filtered
 
 print(f"[smartspeed] Combined rows after dedup on testResultId+testDateUtc: {len(combined_df)}")
-
-# DEBUG: testDateUtc in combined_df BEFORE pd.to_datetime
-print(f"[smartspeed] DEBUG combined_df['testDateUtc'] dtype BEFORE parse: {combined_df['testDateUtc'].dtype}")
-print(f"[smartspeed] DEBUG combined_df['testDateUtc'] first 3 BEFORE parse: {combined_df['testDateUtc'].head(3).tolist()}")
-print(f"[smartspeed] DEBUG combined_df['testDateUtc'] last 3 BEFORE parse: {combined_df['testDateUtc'].tail(3).tolist()}")
-print(f"[smartspeed] DEBUG combined_df['testDateUtc'] null count BEFORE parse: {combined_df['testDateUtc'].isna().sum()}")
 
 # clean data for wrong test type
 if "velocityFields.distance" in combined_df.columns:
@@ -249,16 +220,6 @@ if "velocityFields.distance" in combined_df.columns:
         (combined_df["velocityFields.distance"] == 10),
         "testName"
     ] = "Flying 10s"
-
-# Parse testDateUtc as UTC
-combined_df["testDateUtc"] = pd.to_datetime(combined_df["testDateUtc"], utc=True, errors="coerce")
-
-# DEBUG: after pd.to_datetime
-print(f"[smartspeed] DEBUG combined_df['testDateUtc'] dtype AFTER parse: {combined_df['testDateUtc'].dtype}")
-print(f"[smartspeed] DEBUG combined_df['testDateUtc'] NaT count AFTER parse: {combined_df['testDateUtc'].isna().sum()} / {len(combined_df)}")
-print(f"[smartspeed] DEBUG combined_df['testDateUtc'] min: {combined_df['testDateUtc'].min()}")
-print(f"[smartspeed] DEBUG combined_df['testDateUtc'] max: {combined_df['testDateUtc'].max()}")
-print(f"[smartspeed] DEBUG combined_df['testDateUtc'] sample of unique dates: {sorted(set(combined_df['testDateUtc'].dropna().dt.date.tolist()))[-5:]}")
 
 combined_df["testDate"] = combined_df["testDateUtc"].dt.date
 combined_df["bestSplitSeconds"] = pd.to_numeric(combined_df["bestSplitSeconds"], errors="coerce")
