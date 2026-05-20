@@ -108,7 +108,7 @@ parse_metric_numeric <- function(x) {
       as.character() %>%
       str_squish() %>%
       dplyr::na_if("") %>%
-      dplyr::na_if("\u2014") %>%
+      dplyr::na_if("—") %>%
       dplyr::na_if("-") %>%
       dplyr::na_if("NA") %>%
       str_replace_all("%", "") %>%
@@ -773,7 +773,8 @@ force_include_keys <- c(
   "Catapult|Catapult|Explosive Efforts",
   "Catapult|Catapult|High Speed Distance (12 mph)",
   "Catapult|Catapult|Sprint Distance (16 mph)",
-  "SmartSpeed|Flying 10s|Best Split Seconds"
+  "SmartSpeed|Flying 10s|Best Split Seconds",
+  "SmartSpeed|Fly 10-15|Best Split Seconds"
 )
 
 keep_roster_metrics <- unique(c(keep_roster_metrics, force_include_keys))
