@@ -122,7 +122,7 @@ parse_metric_numeric <- function(x) {
       as.character() %>%
       str_squish() %>%
       dplyr::na_if("") %>%
-      dplyr::na_if("\u2014") %>%
+      dplyr::na_if("—") %>%
       dplyr::na_if("-") %>%
       dplyr::na_if("NA") %>%
       str_replace_all("%", "") %>%
@@ -977,6 +977,7 @@ force_include_keys <- c(
   "Catapult|Catapult|High Speed Distance (12 mph)",
   "Catapult|Catapult|Sprint Distance (16 mph)",
   "SmartSpeed|Flying 10s|Best Split Seconds",
+  "SmartSpeed|Fly 10-15|Best Split Seconds",
   paste0("Lifts|Strength|", OVERRIDE_TESTS)
 )
 
@@ -1184,8 +1185,9 @@ k_maxv <- find_first_existing("Catapult",   c("Max Vel", "Max Velocity", "Max V"
 k_acc  <- find_first_existing("Catapult",   c("Max Effort Acceleration", "Max Effort Accel"))
 k_dec  <- find_first_existing("Catapult",   c("Max Effort Deceleration", "Max Effort Decel"))
 k_fly10 <- find_first_existing("SmartSpeed", metric_names = c("Best Split Seconds"), test_type = "Flying 10s")
+k_fly10_15 <- find_first_existing("SmartSpeed", metric_names = c("Best Split Seconds"), test_type = "Fly 10-15")
 
-keys_needed <- c(k_jump, k_rsi, k_ebi, k_pp, k_lmf, k_rmf, k_imb, k_maxv, k_acc, k_dec, k_fly10)
+keys_needed <- c(k_jump, k_rsi, k_ebi, k_pp, k_lmf, k_rmf, k_imb, k_maxv, k_acc, k_dec, k_fly10, k_fly10_15)
 keys_needed <- keys_needed[!is.na(keys_needed)]
 
 pcts_wide <- roster_best_percentiles_pos_long %>%
@@ -1213,6 +1215,7 @@ ath <- pcts_wide %>%
     acc   = safe_col(., k_acc),
     dec   = safe_col(., k_dec),
     fly10 = safe_col(., k_fly10),
+    fly10_15 = safe_col(., k_fly10_15),
     lmf   = safe_col(., k_lmf),
     rmf   = safe_col(., k_rmf),
     mf    = ifelse(
@@ -1222,12 +1225,22 @@ ath <- pcts_wide %>%
     ),
     imb   = safe_col(., k_imb),
     AthleticismScore = {
-      vs <- cbind(jump, rsi, ebi, pp, mf, imb, maxv, fly10, acc, dec)
-      colnames(vs) <- names(w)
+      vs <- cbind(jump, rsi, ebi, pp, mf, imb, maxv, fly10, fly10_15, acc, dec)
+      colnames(vs) <- c("jump", "rsi", "ebi", "pp", "mf", "imb", "maxv", "fly10", "fly10_15", "acc", "dec")
       apply(vs, 1, function(v) {
         ok <- !is.na(v)
         if (!any(ok)) return(NA_real_)
-        sum(w[ok] * v[ok]) / sum(w[ok])
+        # Weight fly10_15 if fly10 is not available
+        if (is.na(v["fly10"]) && !is.na(v["fly10_15"])) {
+          v["fly10"] <- v["fly10_15"]
+        }
+        w_use <- w
+        if (is.na(v["fly10_15"])) {
+          w_use <- w[-which(names(w) == "fly10")]
+        }
+        ok <- !is.na(v)
+        if (!any(ok)) return(NA_real_)
+        sum(w_use[ok] * v[ok]) / sum(w_use[ok])
       })
     }
   ) %>%
