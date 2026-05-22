@@ -195,7 +195,7 @@ print(f"[smartspeed] API testDateUtc parsed: {df_filtered['testDateUtc'].notna()
 
 file_path = os.path.join(output_dir, "smartspeed.csv")
 
-if os.path.exists(file_path):
+if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
     existing_df = pd.read_csv(file_path)
     print(f"[smartspeed] Existing CSV has {len(existing_df)} rows")
     # Existing CSV has UTC-aware strings (e.g. '2026-02-06 15:58:17+00:00'); utc=True handles them correctly.
@@ -206,6 +206,7 @@ if os.path.exists(file_path):
         .drop_duplicates(subset=["profileId", "testResultId", "testDateUtc"], keep="last")
     )
 else:
+    print("[smartspeed] No existing CSV (or file is empty) — starting fresh")
     combined_df = df_filtered
 
 print(f"[smartspeed] Combined rows after dedup on testResultId+testDateUtc: {len(combined_df)}")
