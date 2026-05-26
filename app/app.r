@@ -1,1 +1,1 @@
-test file 3
+@content_from_file:/tmp/app_clean.r
