@@ -41,6 +41,7 @@ print(f"[smartspeed] Loaded {len(profiles)} profiles")
 # --------------------------------------------------------------------------------------------------
 CUTOFF_DATE = pd.Timestamp("2026-02-06", tz="UTC")
 CUTOFF_UTC_STR = "2026-02-06T00:00:00.000Z"
+FLY1015_CUTOFF = pd.Timestamp("2026-05-13", tz="UTC")
 
 def _read_existing_csv(path):
     """Return DataFrame if path has valid CSV content, else None."""
@@ -246,6 +247,18 @@ if "velocityFields.distance" in combined_df.columns:
         "testName"
     ] = "Flying 10s"
 
+# Rename Flying 10s → Fly 10-15 for tests from May 13 onwards (test protocol changed)
+fly1015_rename_count = combined_df.loc[
+    (combined_df["testName"].str.strip().str.lower() == "flying 10s") &
+    (combined_df["testDateUtc"] >= FLY1015_CUTOFF)
+].shape[0]
+combined_df.loc[
+    (combined_df["testName"].str.strip().str.lower() == "flying 10s") &
+    (combined_df["testDateUtc"] >= FLY1015_CUTOFF),
+    "testName"
+] = "Fly 10-15"
+print(f"[smartspeed] Renamed {fly1015_rename_count} Flying 10s records (>= {FLY1015_CUTOFF.date()}) to Fly 10-15")
+
 combined_df["testDate"] = combined_df["testDateUtc"].dt.date
 combined_df["bestSplitSeconds"] = pd.to_numeric(combined_df["bestSplitSeconds"], errors="coerce")
 
@@ -254,10 +267,10 @@ combined_df = combined_df[combined_df["testDateUtc"] >= CUTOFF_DATE]
 after_cutoff = len(combined_df)
 print(f"[smartspeed] Rows after cutoff filter (>= {CUTOFF_DATE.date()}): {after_cutoff} (dropped {before_cutoff - after_cutoff})")
 
-# remove Flying 10s reps where bestSplitSeconds > 2
+# remove Flying 10s / Fly 10-15 reps where bestSplitSeconds > 2
 combined_df = combined_df[
     ~(
-        (combined_df["testName"].str.strip().str.lower() == "flying 10s") &
+        (combined_df["testName"].str.strip().str.lower().isin(["flying 10s", "fly 10-15"])) &
         (combined_df["bestSplitSeconds"] > 2)
     )
 ]
@@ -267,7 +280,7 @@ combined_df = combined_df.sort_values(
     ascending=[True, True, True]
 )
 combined_df = combined_df.drop_duplicates(
-    subset=["profileId", "testDate"], keep="first"
+    subset=["profileId", "testDate", "testName"], keep="first"
 )
 
 print(f"[smartspeed] Final rows after best-per-day dedup: {len(combined_df)}")
