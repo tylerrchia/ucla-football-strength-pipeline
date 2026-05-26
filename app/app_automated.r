@@ -1,1 +1,0 @@
-$(cat /tmp/app_automated_clean.r)
