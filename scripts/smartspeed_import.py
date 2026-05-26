@@ -39,6 +39,9 @@ profiles = profiles.rename(columns={'profileid': 'profileId'})
 print(f"[smartspeed] Loaded {len(profiles)} profiles")
 
 # --------------------------------------------------------------------------------------------------
+CUTOFF_DATE = pd.Timestamp("2026-02-06", tz="UTC")
+CUTOFF_UTC_STR = "2026-02-06T00:00:00.000Z"
+
 def request_with_retry(method, url, max_attempts=3, **kwargs):
     for attempt in range(1, max_attempts + 1):
         response = requests.request(method, url, **kwargs)
@@ -91,12 +94,11 @@ def get_last_7_days_utc():
     seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
     return seven_days_ago.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-def pull_last_7_days_tests(team_id: str) -> pd.DataFrame:
+def pull_tests(team_id: str, test_from_utc: str) -> pd.DataFrame:
     all_data = []
     page = 1
     base_url = f"https://prd-use-api-extsmartspeed.valdperformance.com/v1/team/{team_id}/tests"
     print(f"[smartspeed] API URL: {base_url}")
-    test_from_utc = get_last_7_days_utc()
     print(f"[smartspeed] Pulling tests from: {test_from_utc}")
 
     while True:
@@ -138,13 +140,24 @@ def pull_last_7_days_tests(team_id: str) -> pd.DataFrame:
         print(f"[smartspeed] Pulled page {page} ({len(data)} records)")
         page += 1
 
-    print(f"[smartspeed] Total records pulled (last 7 days): {len(all_data)}")
+    print(f"[smartspeed] Total records pulled: {len(all_data)}")
     return pd.DataFrame(all_data)
 
-df = pull_last_7_days_tests(team_id)
+# --------------------------------------------------------------------------------------------------
+# Determine pull window: full history on fresh start, last 7 days on incremental update
+file_path = os.path.join(output_dir, "smartspeed.csv")
+is_fresh_start = not os.path.exists(file_path) or os.path.getsize(file_path) == 0
+
+if is_fresh_start:
+    print(f"[smartspeed] Fresh start — pulling all records since {CUTOFF_UTC_STR}")
+    test_from_utc = CUTOFF_UTC_STR
+else:
+    test_from_utc = get_last_7_days_utc()
+
+df = pull_tests(team_id, test_from_utc)
 
 if df.empty:
-    print("[smartspeed] No new tests returned by the API in the last 7 days. Exiting.")
+    print("[smartspeed] No new tests returned by the API. Exiting.")
     sys.exit(0)
 
 print(f"[smartspeed] Columns returned by API: {list(df.columns)}")
@@ -193,9 +206,10 @@ df_filtered["testDateUtc"] = pd.to_datetime(
 ).dt.tz_localize("UTC")
 print(f"[smartspeed] API testDateUtc parsed: {df_filtered['testDateUtc'].notna().sum()} / {len(df_filtered)} non-null")
 
-file_path = os.path.join(output_dir, "smartspeed.csv")
-
-if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+if is_fresh_start:
+    print("[smartspeed] No existing CSV (or file is empty) — starting fresh")
+    combined_df = df_filtered
+else:
     existing_df = pd.read_csv(file_path)
     print(f"[smartspeed] Existing CSV has {len(existing_df)} rows")
     # Existing CSV has UTC-aware strings (e.g. '2026-02-06 15:58:17+00:00'); utc=True handles them correctly.
@@ -205,9 +219,6 @@ if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
         pd.concat([existing_df, df_filtered], ignore_index=True)
         .drop_duplicates(subset=["profileId", "testResultId", "testDateUtc"], keep="last")
     )
-else:
-    print("[smartspeed] No existing CSV (or file is empty) — starting fresh")
-    combined_df = df_filtered
 
 print(f"[smartspeed] Combined rows after dedup on testResultId+testDateUtc: {len(combined_df)}")
 
@@ -225,11 +236,10 @@ if "velocityFields.distance" in combined_df.columns:
 combined_df["testDate"] = combined_df["testDateUtc"].dt.date
 combined_df["bestSplitSeconds"] = pd.to_numeric(combined_df["bestSplitSeconds"], errors="coerce")
 
-cutoff_date = pd.Timestamp("2026-02-06", tz="UTC")
 before_cutoff = len(combined_df)
-combined_df = combined_df[combined_df["testDateUtc"] >= cutoff_date]
+combined_df = combined_df[combined_df["testDateUtc"] >= CUTOFF_DATE]
 after_cutoff = len(combined_df)
-print(f"[smartspeed] Rows after cutoff filter (>= {cutoff_date.date()}): {after_cutoff} (dropped {before_cutoff - after_cutoff})")
+print(f"[smartspeed] Rows after cutoff filter (>= {CUTOFF_DATE.date()}): {after_cutoff} (dropped {before_cutoff - after_cutoff})")
 
 # remove Flying 10s reps where bestSplitSeconds > 2
 combined_df = combined_df[
