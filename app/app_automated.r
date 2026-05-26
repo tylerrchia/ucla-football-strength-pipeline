@@ -1,1 +1,1 @@
-test file 4
+@@@FILE_CONTENT_PLACEHOLDER@@@
