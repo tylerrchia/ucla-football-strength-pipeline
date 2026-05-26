@@ -1,1 +1,1 @@
-@content_from_file:/tmp/app_clean.r
+@read_file:/tmp/app_to_push.r
