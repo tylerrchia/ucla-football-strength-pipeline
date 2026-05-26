@@ -42,6 +42,18 @@ print(f"[smartspeed] Loaded {len(profiles)} profiles")
 CUTOFF_DATE = pd.Timestamp("2026-02-06", tz="UTC")
 CUTOFF_UTC_STR = "2026-02-06T00:00:00.000Z"
 
+def _read_existing_csv(path):
+    """Return DataFrame if path has valid CSV content, else None."""
+    if not os.path.exists(path):
+        return None
+    try:
+        df = pd.read_csv(path)
+        if df.empty or len(df.columns) == 0:
+            return None
+        return df
+    except (pd.errors.EmptyDataError, Exception):
+        return None
+
 def request_with_retry(method, url, max_attempts=3, **kwargs):
     for attempt in range(1, max_attempts + 1):
         response = requests.request(method, url, **kwargs)
@@ -144,9 +156,11 @@ def pull_tests(team_id: str, test_from_utc: str) -> pd.DataFrame:
     return pd.DataFrame(all_data)
 
 # --------------------------------------------------------------------------------------------------
-# Determine pull window: full history on fresh start, last 7 days on incremental update
+# Determine pull window: full history on fresh start, last 7 days on incremental update.
+# Use try/except so that an empty or 1-byte placeholder file is treated as a fresh start.
 file_path = os.path.join(output_dir, "smartspeed.csv")
-is_fresh_start = not os.path.exists(file_path) or os.path.getsize(file_path) == 0
+existing_df = _read_existing_csv(file_path)
+is_fresh_start = existing_df is None
 
 if is_fresh_start:
     print(f"[smartspeed] Fresh start — pulling all records since {CUTOFF_UTC_STR}")
@@ -207,10 +221,9 @@ df_filtered["testDateUtc"] = pd.to_datetime(
 print(f"[smartspeed] API testDateUtc parsed: {df_filtered['testDateUtc'].notna().sum()} / {len(df_filtered)} non-null")
 
 if is_fresh_start:
-    print("[smartspeed] No existing CSV (or file is empty) — starting fresh")
+    print("[smartspeed] No existing CSV (or file is empty/invalid) — starting fresh")
     combined_df = df_filtered
 else:
-    existing_df = pd.read_csv(file_path)
     print(f"[smartspeed] Existing CSV has {len(existing_df)} rows")
     # Existing CSV has UTC-aware strings (e.g. '2026-02-06 15:58:17+00:00'); utc=True handles them correctly.
     existing_df["testDateUtc"] = pd.to_datetime(existing_df["testDateUtc"], utc=True, errors="coerce")
