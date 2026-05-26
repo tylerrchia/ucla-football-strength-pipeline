@@ -1,1 +1,1 @@
-test file 4
+$(cat /tmp/app_automated_clean.r)
