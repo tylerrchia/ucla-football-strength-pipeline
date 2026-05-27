@@ -233,10 +233,7 @@ ingest_nordbord <- function(path) {
   raw %>%
     mutate(
       date = {
-        col <- coalesce(
-          if ("testDate"    %in% names(.)) .data[["testDate"]]    else NULL,
-          if ("testDateUtc" %in% names(.)) .data[["testDateUtc"]] else NULL
-        )
+        col <- if ("testDate" %in% names(.)) .data[["testDate"]] else if ("testDateUtc" %in% names(.)) .data[["testDateUtc"]] else NA_character_
         parsed <- suppressWarnings(lubridate::ymd_hms(col))
         if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::ymd(col))
         as.Date(parsed)
@@ -296,10 +293,7 @@ ingest_forcedecks <- function(path) {
   raw %>%
     mutate(
       date = {
-        col <- coalesce(
-          if ("testDate"    %in% names(.)) .data[["testDate"]]    else NULL,
-          if ("testDateUtc" %in% names(.)) .data[["testDateUtc"]] else NULL
-        )
+        col <- if ("testDate" %in% names(.)) .data[["testDate"]] else if ("testDateUtc" %in% names(.)) .data[["testDateUtc"]] else NA_character_
         parsed <- suppressWarnings(lubridate::ymd_hms(col))
         if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::ymd(col))
         as.Date(parsed)
