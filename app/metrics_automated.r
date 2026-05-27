@@ -977,6 +977,7 @@ force_include_keys <- c(
   "Catapult|Catapult|High Speed Distance (12 mph)",
   "Catapult|Catapult|Sprint Distance (16 mph)",
   "SmartSpeed|Flying 10s|Best Split Seconds",
+  "SmartSpeed|Fly 10-15|Best Split Seconds",
   paste0("Lifts|Strength|", OVERRIDE_TESTS)
 )
 
