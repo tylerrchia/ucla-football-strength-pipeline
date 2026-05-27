@@ -229,6 +229,7 @@ ingest_nordbord <- function(path) {
     isoAsymmetry    = "ISO Asymmetry",
     nordicAsymmetry = "Nordic Asymmetry"
   )
+  if (!any(names(metric_map) %in% names(raw))) return(tibble::tibble())
 
   raw %>%
     mutate(
@@ -289,6 +290,7 @@ ingest_forcedecks <- function(path) {
       "peakPowerPerBodyMass","peakForcePerBodyMass"),
     names(raw)
   )
+  if (length(metric_cols) == 0) return(tibble::tibble())
 
   raw %>%
     mutate(
@@ -347,6 +349,7 @@ ingest_catapult <- function(path) {
       "standingWeight"),
     names(raw)
   )
+  if (length(metric_cols) == 0) return(tibble::tibble())
 
   nm_col <- intersect(c("displayName","fullName","name","player_name","athleteName","profileName"), names(raw))[1]
   date_col <- intersect(c("date","sessionDate","testDate","testDateUtc"), names(raw))[1]
