@@ -60,18 +60,11 @@ FORCEFRAME_PATH <- file.path(DATA_DIR, "forceframe.rds")
 
 OVERRIDE_TESTS <- c("Vertical Jump", "Squat", "Bench", "Clean")
 
-as_of_date <- Sys.Date()
-
-filled_threshold <- 0.25
 force_include_keys <- character(0)
 
-# ---------------------------
-# Helpers
-# ---------------------------
-
-name_fixes <- c(
+NAME_FIXES <- c(
   "Player A"    = "Player A",
-  "Player D" = "Player D",
+  "Player A"   = "Player A",
   "Player B"     = "Player B",
   "Player C"      = "Player C",
   "Player E"    = "Player E",
@@ -79,280 +72,203 @@ name_fixes <- c(
   "Player F"   = "Player F"
 )
 
-fix_player_name <- function(x) {
-  raw <- stringr::str_squish(as.character(x))
-  key <- raw %>%
-    stringr::str_to_upper() %>%
-    stringr::str_replace_all("[\\.,''`]", "") %>%
-    stringr::str_squish()
-  fixed <- dplyr::if_else(
-    key %in% names(name_fixes),
-    unname(name_fixes[key]),
-    raw,
-    missing = raw
-  )
-  stringr::str_squish(fixed)
+# ---------------------------
+# Helpers
+# ---------------------------
+
+fix_player_name <- function(nm) {
+  upper <- toupper(nm)
+  idx   <- match(upper, names(NAME_FIXES))
+  ifelse(!is.na(idx), NAME_FIXES[idx], nm)
 }
 
-standardize_name <- function(x) {
-  x %>%
-    str_squish() %>%
-    str_to_upper() %>%
-    str_replace_all("[\\.,'']", "") %>%
-    str_squish()
+standardize_name <- function(nm) {
+  tolower(stringr::str_replace_all(nm, "[^a-zA-Z0-9]", "_"))
 }
 
-parse_units <- function(col) {
-  u1 <- str_match(col, "\\(([^\\)]+)\\)")[, 2]
-  u2 <- str_match(col, "\\[([^\\]]+)\\]")[, 2]
-  dplyr::coalesce(u1, u2)
+compute_percentile <- function(x, lower_is_better = FALSE) {
+  n <- length(x)
+  if (n == 0) return(numeric(0))
+  non_na <- sum(!is.na(x))
+  if (non_na == 0) return(rep(NA_real_, n))
+  if (non_na == 1) return(ifelse(is.na(x), NA_real_, 50))
+  r <- rank(x, ties.method = "average", na.last = "keep")
+  pct <- (r - 0.5) / non_na * 100
+  if (lower_is_better) pct <- 100 - pct
+  pct
 }
 
-clean_metric_name <- function(col) {
-  col %>%
-    str_squish() %>%
-    str_replace_all("\\s*\\([^\\)]+\\)\\s*$", "") %>%
-    str_replace_all("\\s*\\[[^\\]]+\\]\\s*$", "") %>%
-    str_squish()
-}
-
-parse_metric_numeric <- function(x) {
-  suppressWarnings({
-    x %>%
-      as.character() %>%
-      str_squish() %>%
-      dplyr::na_if("") %>%
-      dplyr::na_if("—") %>%
-      dplyr::na_if("-") %>%
-      dplyr::na_if("NA") %>%
-      str_replace_all("%", "") %>%
-      str_replace_all("[^0-9\\.\\-]", "") %>%
-      as.numeric()
-  })
-}
-
-pct_rank_100 <- function(x) {
-  if (all(is.na(x))) return(rep(NA_real_, length(x)))
-  n <- sum(!is.na(x))
-  if (n <= 1) return(ifelse(is.na(x), NA_real_, 50))
-  r <- rank(x, na.last = "keep", ties.method = "average")
-  (r - 1) / (n - 1) * 100
-}
-
-is_flip_metric <- function(metric_key) {
+is_lower_better <- function(metric_key) {
   grepl("Imbalance|Deceleration|Best Split Seconds|Asymmetry", metric_key, ignore.case = TRUE)
 }
 
-latest_only_metric_name <- function(metric_key) {
-  nm <- sub("^.*\\|", "", metric_key) %>% str_squish()
-  nm <- str_replace_all(nm, "\\s*\\([^\\)]+\\)\\s*$", "")
-  nm <- str_replace_all(nm, "\\s*\\[[^\\]]+\\]\\s*$", "")
+is_most_recent <- function(nm) {
   nm %in% c("Total Player Load", "Total Distance", "Athlete Standing Weight",
             "Nordic Asymmetry", "ISO Asymmetry", "Abduction Asymmetry", "Adduction Asymmetry")
 }
 
-`%||%` <- function(a, b) if (!is.null(a) && length(a) > 0 && !all(is.na(a))) a else b
-
 # ---------------------------
-# Position ingestion
+# Player metadata
 # ---------------------------
 
-ingest_positions <- function(path) {
-  if (!file.exists(path)) {
-    message("Warning: Positions file not found at ", path)
-    return(tibble::tibble(
-      player_id = character(), pos_player_name = character(),
-      pos_group = character(), pos_position = character(), pos_year = integer()
-    ))
-  }
-  if (grepl("\\.rds$", path, ignore.case = TRUE)) {
-    pos_raw <- readRDS(path)
-  } else {
-    pos_raw <- read_csv(path, show_col_types = FALSE)
-  }
-  if (!"name" %in% names(pos_raw)) {
-    if (all(c("firstName", "lastName") %in% names(pos_raw))) {
-      pos_raw$name <- paste(pos_raw$firstName, pos_raw$lastName)
-    } else if ("firstName" %in% names(pos_raw)) {
-      pos_raw$name <- pos_raw$firstName
-    } else if ("lastName" %in% names(pos_raw)) {
-      pos_raw$name <- pos_raw$lastName
-    } else {
-      stop("profiles_with_groups.rds: no name, firstName, or lastName column found")
-    }
-  }
-  pos_raw <- pos_raw %>%
-    rename_with(~ case_when(
-      . == "groupName"          ~ "Group",
-      . == "positionName"       ~ "Position",
-      tolower(.) == "group"     ~ "Group",
-      tolower(.) == "position"  ~ "Position",
-      tolower(.) == "firstname" ~ "firstName",
-      tolower(.) == "lastname"  ~ "lastName",
-      TRUE ~ .
-    ))
-  pos_raw <- pos_raw %>%
-    mutate(
-      player_name = str_squish(name),
-      player_id   = standardize_name(player_name),
-      Group       = na_if(str_squish(as.character(Group)), ""),
-      Position    = na_if(str_squish(as.character(Position)), ""),
-      year        = suppressWarnings(as.integer(year))
-    )
-  pos_raw %>%
-    group_by(player_id) %>%
-    summarise(
-      pos_player_name = first(na.omit(player_name)),
-      pos_group       = dplyr::coalesce(first(na.omit(Group)),    NA_character_),
-      pos_position    = dplyr::coalesce(first(na.omit(Position)), NA_character_),
-      pos_year        = dplyr::coalesce(first(na.omit(year)),     NA_integer_),
-      .groups = "drop"
-    )
+if (file.exists(POS_PATH)) {
+  pos_raw <- readRDS(POS_PATH)
+} else {
+  message("Warning: Position file not found at ", POS_PATH)
+  pos_raw <- tibble::tibble(
+    player_id = character(), pos_player_name = character(),
+    pos_group = character(), pos_position = character(), pos_year = integer()
+  )
+}
+
+if (file.exists(MEAS_PATH)) {
+  meas_raw <- readRDS(MEAS_PATH)
+} else {
+  message("Warning: Measurements file not found at ", MEAS_PATH)
+  meas_raw <- tibble::tibble()
 }
 
 # ---------------------------
-# Measurements ingestion
+# Build player_metadata
 # ---------------------------
 
-ingest_measurements <- function(path) {
-  if (!file.exists(path)) {
-    message("Warning: Measurements file not found at ", path)
-    return(tibble::tibble(
-      player_id = character(), meas_player_name = character(),
-      pos_group = character(), pos_position = character(),
-      class_year = character(), class_year_base = character(),
-      is_redshirt = character(), height_display = character(),
-      weight_display = character(), wingspan_display = character(),
-      hand_display = character(), arm_display = character()
-    ))
+if (nrow(pos_raw) > 0) {
+  nm_col <- intersect(c("displayName","fullName","name","player_name","profileName"), names(pos_raw))[1]
+  if (!is.na(nm_col)) {
+    player_metadata <- pos_raw %>%
+      mutate(
+        player_name = fix_player_name(str_squish(.data[[nm_col]])),
+        player_id   = standardize_name(player_name)
+      )
+  } else {
+    player_metadata <- pos_raw %>% mutate(player_id = character(nrow(.)))
   }
-  meas_raw <- readRDS(path)
-  if (!"name" %in% names(meas_raw)) {
-    if (all(c("firstName", "lastName") %in% names(meas_raw))) {
-      meas_raw$name <- paste(meas_raw$firstName, meas_raw$lastName)
-    } else if ("firstName" %in% names(meas_raw)) {
-      meas_raw$name <- meas_raw$firstName
-    } else if ("lastName" %in% names(meas_raw)) {
-      meas_raw$name <- meas_raw$lastName
-    } else {
-      stop("measurements.rds: no name, firstName, or lastName column found")
-    }
+} else {
+  player_metadata <- tibble::tibble(player_id = character(), player_name = character())
+}
+
+# Normalise column names in player_metadata
+if ("groupName" %in% names(player_metadata) && !("pos_group" %in% names(player_metadata))) {
+  player_metadata <- player_metadata %>% rename(pos_group = groupName)
+}
+if ("position" %in% names(player_metadata) && !("pos_position" %in% names(player_metadata))) {
+  player_metadata <- player_metadata %>% rename(pos_position = position)
+}
+if ("classYear" %in% names(player_metadata) && !("class_year" %in% names(player_metadata))) {
+  player_metadata <- player_metadata %>% rename(class_year = classYear)
+}
+if ("classYearBase" %in% names(player_metadata) && !("class_year_base" %in% names(player_metadata))) {
+  player_metadata <- player_metadata %>% rename(class_year_base = classYearBase)
+}
+if ("isRedshirt" %in% names(player_metadata) && !("is_redshirt" %in% names(player_metadata))) {
+  player_metadata <- player_metadata %>% rename(is_redshirt = isRedshirt)
+}
+
+if ("heightDisplay" %in% names(player_metadata) && !("height_display" %in% names(player_metadata))) {
+  player_metadata <- player_metadata %>% rename(height_display = heightDisplay)
+}
+if ("weightDisplay" %in% names(player_metadata) && !("weight_display" %in% names(player_metadata))) {
+  player_metadata <- player_metadata %>% rename(weight_display = weightDisplay)
+}
+if ("wingspanDisplay" %in% names(player_metadata) && !("wingspan_display" %in% names(player_metadata))) {
+  player_metadata <- player_metadata %>% rename(wingspan_display = wingspanDisplay)
+}
+if ("handDisplay" %in% names(player_metadata) && !("hand_display" %in% names(player_metadata))) {
+  player_metadata <- player_metadata %>% rename(hand_display = handDisplay)
+}
+if ("armDisplay" %in% names(player_metadata) && !("arm_display" %in% names(player_metadata))) {
+  player_metadata <- player_metadata %>% rename(arm_display = armDisplay)
+}
+
+for (col in c("pos_group","pos_position","class_year","class_year_base","is_redshirt",
+              "height_display","weight_display","wingspan_display","hand_display","arm_display")) {
+  if (!(col %in% names(player_metadata))) player_metadata[[col]] <- NA
+}
+
+# ---------------------------
+# Measurements
+# ---------------------------
+
+if (nrow(meas_raw) > 0) {
+  nm_col_m <- intersect(c("displayName","fullName","name","player_name","profileName"), names(meas_raw))[1]
+  if (!is.na(nm_col_m)) {
+    meas_clean <- meas_raw %>%
+      mutate(
+        player_name = fix_player_name(str_squish(.data[[nm_col_m]])),
+        player_id   = standardize_name(player_name)
+      )
+    height_col <- intersect(c("height","heightDisplay","height_display"), names(meas_clean))[1]
+    weight_col <- intersect(c("weight","weightDisplay","weight_display"), names(meas_clean))[1]
+    if (!is.na(height_col)) player_metadata <- player_metadata %>%
+      left_join(meas_clean %>% select(player_id, height_meas = all_of(height_col)) %>% distinct(player_id, .keep_all=TRUE), by="player_id") %>%
+      mutate(height_display = coalesce(height_display, as.character(height_meas))) %>%
+      select(-any_of("height_meas"))
+    if (!is.na(weight_col)) player_metadata <- player_metadata %>%
+      left_join(meas_clean %>% select(player_id, weight_meas = all_of(weight_col)) %>% distinct(player_id, .keep_all=TRUE), by="player_id") %>%
+      mutate(weight_display = coalesce(weight_display, as.character(weight_meas))) %>%
+      select(-any_of("weight_meas"))
   }
-  meas_raw <- meas_raw %>%
-    mutate(
-      player_name = str_squish(name),
-      player_id   = standardize_name(player_name),
-      Group    = na_if(str_squish(as.character(Group)),    ""),
-      Position = na_if(str_squish(as.character(Position)), ""),
-      Year     = na_if(str_squish(as.character(Year)),     ""),
-      Height   = na_if(str_squish(as.character(Height)),   ""),
-      Weight   = na_if(str_squish(as.character(Weight)),   ""),
-      Wingspan = na_if(str_squish(as.character(Wingspan)), ""),
-      Hand     = na_if(str_squish(as.character(Hand)),     ""),
-      Arm      = na_if(str_squish(as.character(Arm)),      "")
-    ) %>%
-    mutate(
-      class_year      = Year %>% str_replace_all("\\*", "") %>% str_squish(),
-      is_redshirt     = if_else(!is.na(class_year) & str_detect(class_year, "^RS-"), "Yes", "No"),
-      class_year_base = class_year %>%
-        str_replace("^RS-", "") %>%
-        str_to_upper() %>%
-        na_if("")
-    )
-  meas_raw %>%
-    group_by(player_id) %>%
-    summarise(
-      meas_player_name = first(na.omit(player_name)),
-      pos_group        = dplyr::coalesce(first(na.omit(Group)),           NA_character_),
-      pos_position     = dplyr::coalesce(first(na.omit(Position)),        NA_character_),
-      class_year       = dplyr::coalesce(first(na.omit(class_year)),      NA_character_),
-      class_year_base  = dplyr::coalesce(first(na.omit(class_year_base)), NA_character_),
-      is_redshirt      = dplyr::coalesce(first(na.omit(is_redshirt)),     NA_character_),
-      height_display   = dplyr::coalesce(first(na.omit(Height)),          NA_character_),
-      weight_display   = dplyr::coalesce(first(na.omit(Weight)),          NA_character_),
-      wingspan_display = dplyr::coalesce(first(na.omit(Wingspan)),        NA_character_),
-      hand_display     = dplyr::coalesce(first(na.omit(Hand)),            NA_character_),
-      arm_display      = dplyr::coalesce(first(na.omit(Arm)),             NA_character_),
-      .groups = "drop"
-    )
 }
 
 # ---------------------------
 # NordBord ingestion
 # ---------------------------
 
-ingest_nordboard <- function(path) {
+ingest_nordbord <- function(path) {
   if (!file.exists(path)) {
     message("Warning: NordBord file not found at ", path)
     return(tibble::tibble())
   }
-  if (grepl("\\.rds$", path, ignore.case = TRUE)) {
-    raw <- readRDS(path)
-  } else {
-    raw <- read_csv(path, show_col_types = FALSE)
-  }
-  raw <- raw %>%
+  raw <- readRDS(path)
+
+  id_cols    <- c("player_id", "player_name", "date", "datetime", "source", "test_type")
+  metric_map <- c(
+    leftMaxForce    = "Left Max Force",
+    rightMaxForce   = "Right Max Force",
+    imbalance       = "Imbalance",
+    isoAsymmetry    = "ISO Asymmetry",
+    nordicAsymmetry = "Nordic Asymmetry"
+  )
+
+  raw %>%
     mutate(
-      date = if (inherits(date, "Date")) date else {
-        parsed <- suppressWarnings(lubridate::ymd(date))
-        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::mdy(date))
-        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::dmy(date))
-        parsed
+      date = {
+        col <- coalesce(
+          if ("testDate"    %in% names(.)) .data[["testDate"]]    else NULL,
+          if ("testDateUtc" %in% names(.)) .data[["testDateUtc"]] else NULL
+        )
+        parsed <- suppressWarnings(lubridate::ymd_hms(col))
+        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::ymd(col))
+        as.Date(parsed)
       },
       datetime    = as.POSIXct(date),
-      player_name = fix_player_name(str_squish(coalesce(name, paste(firstName, lastName)))),
+      player_name = fix_player_name(str_squish(coalesce(
+        if ("displayName" %in% names(.)) .data[["displayName"]] else NULL,
+        if ("name"        %in% names(.)) .data[["name"]]        else NULL,
+        if ("profileName" %in% names(.)) .data[["profileName"]] else NULL
+      ))),
       player_id   = standardize_name(player_name),
       source      = "NordBord",
-      test_type   = coalesce(testType, "Nordic Hamstring")
-    )
-  id_cols <- c("player_id", "player_name", "date", "datetime", "source", "test_type")
-  metric_cols <- intersect(
-    c("leftAvgForce", "leftImpulse", "leftMaxForce",
-      "rightAvgForce", "rightImpulse", "rightMaxForce",
-      "asymmetry", "avg_max_force"),
-    names(raw)
-  )
-  if (length(metric_cols) == 0) {
-    message("Warning: No metric columns found in NordBord data")
-    return(tibble::tibble())
-  }
-  raw %>%
-    select(any_of(c(id_cols, metric_cols))) %>%
-    pivot_longer(
-      cols             = all_of(metric_cols),
-      names_to         = "metric_raw",
-      values_to        = "metric_value_raw",
-      values_transform = list(metric_value_raw = as.character)
+      test_type   = coalesce(
+        if ("testTypeName" %in% names(.)) .data[["testTypeName"]] else NULL,
+        "NordBord"
+      )
     ) %>%
+    select(any_of(c(id_cols, names(metric_map)))) %>%
+    tidyr::pivot_longer(
+      cols      = any_of(names(metric_map)),
+      names_to  = "metric_raw",
+      values_to = "metric_value_raw"
+    ) %>%
+    filter(!is.na(metric_value_raw)) %>%
     mutate(
-      metric_name_base = case_when(
-        metric_raw == "leftAvgForce"  ~ "L Avg Force",
-        metric_raw == "leftImpulse"   ~ "L Max Impulse",
-        metric_raw == "leftMaxForce"  ~ "L Max Force",
-        metric_raw == "rightAvgForce" ~ "R Avg Force",
-        metric_raw == "rightImpulse"  ~ "R Max Impulse",
-        metric_raw == "rightMaxForce" ~ "R Max Force",
-        metric_raw == "asymmetry"     ~ "Max Imbalance",
-        metric_raw == "avg_max_force" ~ "Avg Max Force",
-        TRUE ~ metric_raw
-      ),
-      metric_name = case_when(
-        str_to_lower(str_squish(test_type)) == "iso prone" & metric_name_base == "Max Imbalance" ~ "ISO Asymmetry (%)",
-        str_to_lower(str_squish(test_type)) == "iso prone" ~ paste("ISO Prone", metric_name_base),
-        metric_name_base == "Max Imbalance" ~ "Nordic Asymmetry (%)",
-        TRUE ~ metric_name_base
-      ),
-      units = case_when(
-        str_detect(metric_raw, "Force")   ~ "N",
-        str_detect(metric_raw, "Impulse") ~ "Ns",
-        metric_raw == "asymmetry"         ~ "%",
-        TRUE ~ NA_character_
-      ),
-      metric_value = parse_metric_numeric(metric_value_raw)
+      metric_name  = metric_map[metric_raw],
+      metric_value = suppressWarnings(as.numeric(metric_value_raw)),
+      units        = ""
     ) %>%
     filter(!is.na(metric_value)) %>%
-    select(-metric_value_raw, -metric_name_base)
-    
+    select(player_id, player_name, date, datetime,
+           source, test_type, metric_name, metric_value, units)
 }
 
 # ---------------------------
@@ -364,52 +280,58 @@ ingest_forcedecks <- function(path) {
     message("Warning: ForceDecks file not found at ", path)
     return(tibble::tibble())
   }
-  if (grepl("\\.rds$", path, ignore.case = TRUE)) {
-    raw <- readRDS(path)
-  } else {
-    raw <- read_csv(path, show_col_types = FALSE)
-  }
-  raw <- raw %>%
+  raw <- readRDS(path)
+
+  id_cols <- c("player_id", "player_name", "date", "datetime", "source", "test_type")
+  metric_cols <- intersect(
+    c("jumpHeight","peakPower","peakForce","rsi","reactivestrenindex",
+      "eccentricBrakeImpulse","concentricImpulse","peakLandingForce",
+      "leftMeanForce","rightMeanForce","limbImbalance","contactTime",
+      "flightTime","takeoffVelocity","landingVelocity",
+      "leftPeakForce","rightPeakForce",
+      "peakPowerPerBodyMass","peakForcePerBodyMass"),
+    names(raw)
+  )
+
+  raw %>%
     mutate(
-      date = if (inherits(date, "Date")) date else {
-        parsed <- suppressWarnings(lubridate::ymd(date))
-        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::mdy(date))
-        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::dmy(date))
-        parsed
+      date = {
+        col <- coalesce(
+          if ("testDate"    %in% names(.)) .data[["testDate"]]    else NULL,
+          if ("testDateUtc" %in% names(.)) .data[["testDateUtc"]] else NULL
+        )
+        parsed <- suppressWarnings(lubridate::ymd_hms(col))
+        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::ymd(col))
+        as.Date(parsed)
       },
       datetime    = as.POSIXct(date),
-      player_name = fix_player_name(str_squish(coalesce(name, paste(firstName, lastName)))),
+      player_name = fix_player_name(str_squish(coalesce(
+        if ("displayName" %in% names(.)) .data[["displayName"]] else NULL,
+        if ("name"        %in% names(.)) .data[["name"]]        else NULL,
+        if ("profileName" %in% names(.)) .data[["profileName"]] else NULL
+      ))),
       player_id   = standardize_name(player_name),
       source      = "ForceDecks",
-      test_type   = coalesce(testType, "CMJ")
-    )
-  id_cols <- c("player_id", "player_name", "date", "datetime", "source", "test_type")
-  non_metric <- c(
-    "profileId", "testId", "firstName", "lastName", "name",
-    "groupName", "positionName", "testType", "date", "year",
-    "player_id", "player_name", "datetime", "source", "test_type"
-  )
-  metric_cols <- setdiff(names(raw), non_metric)
-  metric_cols <- metric_cols[sapply(raw[metric_cols], function(x) is.numeric(x) || is.character(x))]
-  if (length(metric_cols) == 0) {
-    message("Warning: No metric columns found in ForceDecks data")
-    return(tibble::tibble())
-  }
-  raw %>%
-    select(any_of(c(id_cols, metric_cols))) %>%
-    pivot_longer(
-      cols             = all_of(metric_cols),
-      names_to         = "metric_raw",
-      values_to        = "metric_value_raw",
-      values_transform = list(metric_value_raw = as.character)
+      test_type   = coalesce(
+        if ("testTypeName" %in% names(.)) .data[["testTypeName"]] else NULL,
+        "ForceDecks"
+      )
     ) %>%
+    select(any_of(c(id_cols, metric_cols))) %>%
+    tidyr::pivot_longer(
+      cols      = any_of(metric_cols),
+      names_to  = "metric_raw",
+      values_to = "metric_value_raw"
+    ) %>%
+    filter(!is.na(metric_value_raw)) %>%
     mutate(
-      metric_name  = metric_raw %>% str_replace_all("\\.", " ") %>% str_squish(),
-      units        = parse_units(metric_raw),
-      metric_value = parse_metric_numeric(metric_value_raw)
+      metric_name  = metric_raw,
+      metric_value = suppressWarnings(as.numeric(metric_value_raw)),
+      units        = ""
     ) %>%
     filter(!is.na(metric_value)) %>%
-    select(-metric_value_raw)
+    select(player_id, player_name, date, datetime,
+           source, test_type, metric_name, metric_value, units)
 }
 
 # ---------------------------
@@ -421,129 +343,55 @@ ingest_catapult <- function(path) {
     message("Warning: Catapult file not found at ", path)
     return(tibble::tibble())
   }
-  raw <- readRDS(path) %>%
-    rename_with(~ str_squish(.))
-  raw <- raw %>%
+  raw <- readRDS(path)
+
+  id_cols <- c("player_id", "player_name", "date", "datetime", "source", "test_type")
+  metric_cols <- intersect(
+    c("playerLoad","totalDistance","highSpeedDistance","sprintDistance",
+      "explosiveEfforts","playerLoadPerMinute","playerLoadSlow",
+      "maxVelocity","maxAcceleration","maxDeceleration",
+      "standingWeight"),
+    names(raw)
+  )
+
+  nm_col <- intersect(c("displayName","fullName","name","player_name","athleteName","profileName"), names(raw))[1]
+  date_col <- intersect(c("date","sessionDate","testDate","testDateUtc"), names(raw))[1]
+
+  if (is.na(nm_col) || is.na(date_col)) {
+    message("Warning: Catapult file missing name or date column")
+    return(tibble::tibble())
+  }
+
+  raw %>%
     mutate(
-      date = if (inherits(date, "Date")) date else {
-        parsed <- suppressWarnings(lubridate::ymd(date))
-        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::mdy(date))
-        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::dmy(date))
-        parsed
+      date = {
+        col <- .data[[date_col]]
+        parsed <- suppressWarnings(lubridate::ymd_hms(col))
+        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::ymd(col))
+        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::mdy(col))
+        as.Date(parsed)
       },
       datetime    = as.POSIXct(date),
-      player_name = fix_player_name(str_squish(athlete_name)),
+      player_name = fix_player_name(str_squish(.data[[nm_col]])),
       player_id   = standardize_name(player_name),
       source      = "Catapult",
       test_type   = "Catapult"
-    )
-  id_cols <- c("player_id", "player_name", "date", "datetime", "source", "test_type")
-  non_metric <- c(
-    "athlete_name", "activity_name", "period_id", "period_name",
-    "date", "datetime", "player_name", "player_id", "source", "test_type"
-  )
-  metric_cols <- setdiff(names(raw), non_metric)
-  if (length(metric_cols) == 0) {
-    message("Warning: No metric columns found in Catapult data")
-    return(tibble::tibble())
-  }
-  long <- raw %>%
+    ) %>%
     select(any_of(c(id_cols, metric_cols))) %>%
-    pivot_longer(
-      cols             = all_of(metric_cols),
-      names_to         = "metric_raw",
-      values_to        = "metric_value_raw",
-      values_transform = list(metric_value_raw = as.character)
+    tidyr::pivot_longer(
+      cols      = any_of(metric_cols),
+      names_to  = "metric_raw",
+      values_to = "metric_value_raw"
     ) %>%
+    filter(!is.na(metric_value_raw)) %>%
     mutate(
-      units        = NA_character_,
-      metric_name  = metric_raw %>%
-        str_replace_all("_", " ") %>%
-        str_squish() %>%
-        str_to_title(),
-      metric_value = parse_metric_numeric(metric_value_raw)
-    ) %>%
-    mutate(
-      metric_value = case_when(
-        metric_name %in% c("Explosive Efforts", "Total Explosive Efforts") & metric_value > 40  ~ NA_real_,
-        metric_name %in% c("Max V", "Max Vel", "Max Velocity")             & metric_value > 24  ~ NA_real_,
-        TRUE ~ metric_value
-      )
+      metric_name  = metric_raw,
+      metric_value = suppressWarnings(as.numeric(metric_value_raw)),
+      units        = ""
     ) %>%
     filter(!is.na(metric_value)) %>%
-    select(-metric_value_raw)
-
-  long <- long %>%
-    mutate(
-      metric_keep = case_when(
-        metric_name %in% c("Total Player Load", "Player Load", "Total Load")       ~ "Total Player Load",
-        metric_name %in% c("Explosive Efforts", "Total Explosive Efforts")         ~ "Explosive Efforts",
-        str_detect(metric_name, "^High Speed Distance") &
-          str_detect(metric_name, "12mph")                                         ~ "High Speed Distance (12 mph)",
-        str_detect(metric_name, "^Sprint Distance") &
-          str_detect(metric_name, "16mph")                                         ~ "Sprint Distance (16 mph)",
-        metric_name %in% c("Max Vel", "Max V", "Max Velocity")                     ~ "Max Vel",
-        metric_name %in% c("Max Effort Acceleration", "Max Effort Accel")          ~ "Max Effort Acceleration",
-        metric_name %in% c("Max Effort Deceleration", "Max Effort Decel")          ~ "Max Effort Deceleration",
-        metric_name %in% c("Total Duration", "Duration", "Total Time")             ~ "Total Duration",
-        TRUE ~ NA_character_
-      )
-    ) %>%
-    filter(!is.na(metric_keep)) %>%
-    mutate(metric_name = metric_keep) %>%
-    select(-metric_keep)
-
-  sum_metrics      <- c("Total Player Load", "Explosive Efforts",
-                        "High Speed Distance (12 mph)", "Sprint Distance (16 mph)",
-                        "Total Duration")
-  peak_max_metrics <- c("Max Vel", "Max Effort Acceleration")
-  peak_min_metrics <- c("Max Effort Deceleration")
-
-  summed <- long %>%
-    filter(metric_name %in% sum_metrics) %>%
-    group_by(player_id, player_name, date, source, test_type, metric_name) %>%
-    summarise(metric_value = sum(metric_value, na.rm = TRUE), .groups = "drop") %>%
-    mutate(datetime = as.POSIXct(date), units = NA_character_)
-
-  maxed <- long %>%
-    filter(metric_name %in% peak_max_metrics) %>%
-    group_by(player_id, player_name, date, source, test_type, metric_name) %>%
-    summarise(metric_value = max(metric_value, na.rm = TRUE), .groups = "drop") %>%
-    mutate(datetime = as.POSIXct(date), units = NA_character_)
-
-  minned <- long %>%
-    filter(metric_name %in% peak_min_metrics) %>%
-    group_by(player_id, player_name, date, source, test_type, metric_name) %>%
-    summarise(metric_value = min(metric_value, na.rm = TRUE), .groups = "drop") %>%
-    mutate(datetime = as.POSIXct(date), units = NA_character_)
-
-  daily_plmin <- summed %>%
-    filter(metric_name %in% c("Total Player Load", "Total Duration")) %>%
-    select(player_id, player_name, date, source, test_type, metric_name, metric_value) %>%
-    pivot_wider(names_from = metric_name, values_from = metric_value) %>%
-    mutate(
-      duration_min = case_when(
-        is.na(`Total Duration`)  ~ NA_real_,
-        `Total Duration` > 1000  ~ `Total Duration` / 60,
-        TRUE                     ~ `Total Duration`
-      ),
-      metric_name  = "Player Load Per Minute",
-      metric_value = `Total Player Load` / duration_min
-    ) %>%
-    filter(!is.na(metric_value) & is.finite(metric_value)) %>%
-    mutate(datetime = as.POSIXct(date), units = NA_character_) %>%
-    select(player_id, player_name, date, datetime, source, test_type,
-           metric_name, metric_value, units)
-
-  bind_rows(
-    summed %>% filter(metric_name != "Total Duration"),
-    maxed,
-    minned,
-    daily_plmin
-  ) %>%
-    mutate(metric_value = round(metric_value, 2)) %>%
-    select(all_of(c("player_id", "player_name", "date", "datetime",
-                    "source", "test_type", "metric_name", "metric_value", "units")))
+    select(player_id, player_name, date, datetime,
+           source, test_type, metric_name, metric_value, units)
 }
 
 # ---------------------------
@@ -580,7 +428,9 @@ ingest_smartspeed <- function(path) {
       player_name  = fix_player_name(str_squish(name)),
       player_id    = standardize_name(player_name),
       source       = "SmartSpeed",
-      test_type    = coalesce(testName, testTypeName, "SmartSpeed"),
+      test_type    = ifelse(coalesce(testName, testTypeName, "SmartSpeed") == "Flying 10s",
+                           "Fly 10-15",
+                           coalesce(testName, testTypeName, "SmartSpeed")),
       metric_name  = "Best Split Seconds",
       metric_value = suppressWarnings(as.numeric(bestSplitSeconds)),
       units        = "s"
@@ -640,269 +490,202 @@ ingest_forceframe <- function(path) {
       values_to        = "metric_value_raw",
       values_transform = list(metric_value_raw = as.character)
     ) %>%
+    filter(!is.na(metric_value_raw)) %>%
     mutate(
-      metric_name = case_when(
-        metric_raw == "maxInnerForce"        ~ "Max Adduction Force",
-        metric_raw == "maxOuterForce"        ~ "Max Abduction Force",
-        metric_raw == "AB_AD_ratio"          ~ "Abduction to Adduction Ratio",
-        metric_raw == "outerLeftMaxForce"    ~ "L Abduction Max Force",
-        metric_raw == "outerRightMaxForce"   ~ "R Abduction Max Force",
-        metric_raw == "innerLeftMaxForce"    ~ "L Adduction Max Force",
-        metric_raw == "innerRightMaxForce"   ~ "R Adduction Max Force",
-        metric_raw == "abduction_asymmetry"  ~ "Abduction Asymmetry (%)",
-        metric_raw == "adduction_asymmetry"  ~ "Adduction Asymmetry (%)",
-        TRUE ~ metric_raw
-      ),
-      units = case_when(
-        metric_raw %in% c("maxInnerForce", "maxOuterForce",
-                          "outerLeftMaxForce", "outerRightMaxForce",
-                          "innerLeftMaxForce", "innerRightMaxForce") ~ "N",
-        metric_raw == "AB_AD_ratio"                                  ~ "ratio",
-        metric_raw %in% c("abduction_asymmetry", "adduction_asymmetry") ~ "%",
-        TRUE ~ NA_character_
-      ),
-      metric_value = parse_metric_numeric(metric_value_raw)
+      metric_name  = metric_raw,
+      metric_value = suppressWarnings(as.numeric(metric_value_raw)),
+      units        = ""
     ) %>%
     filter(!is.na(metric_value)) %>%
-    select(-metric_value_raw)
-}
-
-# ---------------------------
-# Manual Overrides ingestion
-# ---------------------------
-
-ingest_manual_overrides <- function(path) {
-  if (!file.exists(path)) {
-    message("Warning: manual_overrides.rds not found at ", path)
-    return(tibble::tibble())
-  }
-  raw <- readRDS(path)
-  names(raw) <- tolower(names(raw))
-  if (!all(c("name", "date", "test", "value") %in% names(raw))) {
-    message("Warning: manual_overrides.rds missing expected columns (Name, Date, Test, Value)")
-    return(tibble::tibble())
-  }
-  raw %>%
-    mutate(
-      player_name  = fix_player_name(str_squish(as.character(name))),
-      player_id    = standardize_name(player_name),
-      date         = {
-        d <- as.character(date)
-        parsed <- suppressWarnings(lubridate::ymd(d))
-        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::mdy(d))
-        if (all(is.na(parsed))) parsed <- suppressWarnings(lubridate::dmy(d))
-        parsed
-      },
-      datetime     = as.POSIXct(date),
-      source       = "Lifts",
-      test_type    = "Strength",
-      metric_name  = str_squish(as.character(test)),
-      metric_value = suppressWarnings(as.numeric(as.character(value))),
-      units        = case_when(
-        str_detect(metric_name, "Vertical Jump") ~ "in",
-        TRUE                                     ~ "lbs"
-      )
-    ) %>%
-    filter(!is.na(metric_value), metric_name %in% OVERRIDE_TESTS) %>%
     select(player_id, player_name, date, datetime,
            source, test_type, metric_name, metric_value, units)
 }
 
-# ============================================================
-# LOAD ALL DATA SOURCES
-# ============================================================
+# ---------------------------
+# Manual overrides ingestion
+# ---------------------------
 
-nord       <- ingest_nordboard(NORD_PATH)
-force      <- ingest_forcedecks(FORCE_PATH)
-catapult   <- ingest_catapult(CAT_PATH)
+ingest_overrides <- function(path) {
+  if (!file.exists(path)) return(tibble::tibble())
+  raw <- readRDS(path)
+  if (nrow(raw) == 0) return(tibble::tibble())
+  
+  required <- c("player_name", "date", "source", "test_type", "metric_name", "metric_value")
+  if (!all(required %in% names(raw))) {
+    message("Warning: manual_overrides.rds missing required columns")
+    return(tibble::tibble())
+  }
+  
+  raw %>%
+    mutate(
+      player_name = fix_player_name(str_squish(player_name)),
+      player_id   = standardize_name(player_name),
+      date        = as.Date(date),
+      datetime    = as.POSIXct(date),
+      metric_value = suppressWarnings(as.numeric(metric_value)),
+      units       = if ("units" %in% names(.)) units else ""
+    ) %>%
+    filter(!is.na(metric_value)) %>%
+    select(player_id, player_name, date, datetime,
+           source, test_type, metric_name, metric_value, units)
+}
+
+# ---------------------------
+# Load raw data
+# ---------------------------
+
+nord      <- ingest_nordbord(NORD_PATH)
+force     <- ingest_forcedecks(FORCE_PATH)
+catapult  <- ingest_catapult(CAT_PATH)
 smartspeed <- ingest_smartspeed(SMART_PATH)
-overrides  <- ingest_manual_overrides(OVERRIDES_PATH)
+overrides  <- ingest_overrides(OVERRIDES_PATH)
 forceframe <- ingest_forceframe(FORCEFRAME_PATH)
 
 vald_tests_long <- bind_rows(nord, force, catapult, smartspeed, overrides, forceframe) %>%
-  mutate(
-    metric_value = as.numeric(metric_value),
-    metric_value = round(metric_value, 3)
-  )
+  filter(!is.na(date)) %>%
+  arrange(player_id, date)
 
-catapult_tests_long <- catapult %>%
-  mutate(
-    metric_value = as.numeric(metric_value),
-    metric_value = round(metric_value, 2)
-  )
+message("  vald_tests_long: ", nrow(vald_tests_long), " rows")
 
-catapult_tests_long_ui <- catapult_tests_long %>%
-  mutate(metric_key = paste(source, test_type, metric_name, sep = "|"))
+# ---------------------------
+# Build metric_key
+# ---------------------------
 
-# ============================================================
-# PLAYER METADATA
-# ============================================================
-
-positions    <- ingest_positions(POS_PATH)
-measurements <- ingest_measurements(MEAS_PATH)
-
-player_metadata <- positions %>%
-  full_join(measurements, by = "player_id", suffix = c("_pos", "_meas")) %>%
-  mutate(
-    pos_player_name = coalesce(pos_player_name, meas_player_name),
-    pos_group       = coalesce(pos_group_meas,    pos_group_pos),
-    pos_position    = coalesce(pos_position_meas, pos_position_pos)
-  ) %>%
-  select(
-    player_id, pos_player_name, pos_group, pos_position, pos_year,
-    class_year, class_year_base, is_redshirt,
-    height_display, weight_display, wingspan_display, hand_display, arm_display
-  )
-
-players <- vald_tests_long %>%
-  distinct(player_id, player_name) %>%
-  arrange(player_name) %>%
-  left_join(player_metadata, by = "player_id")
-
-vald_tests_long <- vald_tests_long %>%
-  left_join(player_metadata, by = "player_id")
+metric_name_map <- c(
+  jumpHeight           = "Jump Height",
+  peakPower            = "Peak Power",
+  peakForce            = "Peak Force",
+  rsi                  = "RSI",
+  reactivestrenindex   = "RSI",
+  eccentricBrakeImpulse = "Eccentric Brake Impulse",
+  concentricImpulse    = "Concentric Impulse",
+  peakLandingForce     = "Peak Landing Force",
+  leftMeanForce        = "Left Mean Force",
+  rightMeanForce       = "Right Mean Force",
+  limbImbalance        = "Limb Imbalance",
+  contactTime          = "Contact Time",
+  flightTime           = "Flight Time",
+  takeoffVelocity      = "Takeoff Velocity",
+  landingVelocity      = "Landing Velocity",
+  leftPeakForce        = "Left Peak Force",
+  rightPeakForce       = "Right Peak Force",
+  peakPowerPerBodyMass = "Peak Power Per Body Mass",
+  peakForcePerBodyMass = "Peak Force Per Body Mass",
+  playerLoad           = "Total Player Load",
+  totalDistance        = "Total Distance",
+  highSpeedDistance    = "High Speed Distance (12 mph)",
+  sprintDistance       = "Sprint Distance (16 mph)",
+  explosiveEfforts     = "Explosive Efforts",
+  playerLoadPerMinute  = "Player Load Per Minute",
+  playerLoadSlow       = "Player Load Slow",
+  maxVelocity          = "Max Velocity",
+  maxAcceleration      = "Max Effort Acceleration",
+  maxDeceleration      = "Max Effort Deceleration",
+  standingWeight       = "Athlete Standing Weight",
+  leftMaxForce         = "Left Max Force",
+  rightMaxForce        = "Right Max Force",
+  imbalance            = "Imbalance",
+  isoAsymmetry         = "ISO Asymmetry",
+  nordicAsymmetry      = "Nordic Asymmetry",
+  maxInnerForce        = "Max Inner Force",
+  maxOuterForce        = "Max Outer Force",
+  AB_AD_ratio          = "AB/AD Ratio",
+  outerLeftMaxForce    = "Outer Left Max Force",
+  outerRightMaxForce   = "Outer Right Max Force",
+  innerLeftMaxForce    = "Inner Left Max Force",
+  innerRightMaxForce   = "Inner Right Max Force",
+  abduction_asymmetry  = "Abduction Asymmetry",
+  adduction_asymmetry  = "Adduction Asymmetry"
+)
 
 vald_tests_long_ui <- vald_tests_long %>%
-  mutate(metric_key = paste(source, test_type, metric_name, sep = "|"))
+  mutate(
+    display_name = ifelse(
+      metric_name %in% metric_name_map,
+      metric_name_map[metric_name],
+      metric_name
+    ),
+    metric_key = paste(source, test_type, display_name, sep = "|")
+  )
 
-# ============================================================
-# ForceFrame recalculated ratio and asymmetry (all-time best per player)
-# ============================================================
-forceframe_ratio_key <- "ForceFrame|ForceFrame|Abduction to Adduction Ratio (Recalc)"
-forceframe_asym_key  <- "ForceFrame|ForceFrame|Abduction-Adduction Asymmetry (%)"
+# ---------------------------
+# as_of_date
+# ---------------------------
 
-# Ensure force_include_keys exists (we added it earlier in Config)
-if (any(vald_tests_long_ui$source == "ForceFrame")) {
-  ff_data <- vald_tests_long_ui %>%
-    filter(source == "ForceFrame", metric_name %in% c("Max Adduction Force", "Max Abduction Force"))
-  
-  if (nrow(ff_data) > 0) {
-    player_max_forces <- ff_data %>%
-      group_by(player_id, player_name, metric_name) %>%
-      summarise(max_val = max(metric_value, na.rm = TRUE), .groups = "drop") %>%
-      pivot_wider(names_from = metric_name, values_from = max_val) %>%
-      mutate(
-        `Max Abduction Force` = if_else(`Max Abduction Force` > 0, `Max Abduction Force`, NA_real_),
-        `Max Adduction Force` = if_else(`Max Adduction Force` > 0, `Max Adduction Force`, NA_real_)
-      ) %>%
-      filter(!is.na(`Max Abduction Force`), !is.na(`Max Adduction Force`)) %>%
-      mutate(
-        `Abduction to Adduction Ratio (Recalc)` = `Max Abduction Force` / `Max Adduction Force`,
-        # Asymmetry: (stronger - weaker) / average * 100
-        avg = (`Max Abduction Force` + `Max Adduction Force`) / 2,
-        asym = abs(`Max Abduction Force` - `Max Adduction Force`) / avg * 100,
-        `Abduction-Adduction Asymmetry (%)` = round(asym, 1)
-      ) %>%
-      filter(is.finite(`Abduction to Adduction Ratio (Recalc)`))
-    
-    if (nrow(player_max_forces) > 0) {
-      # Append the recalculated ratio as new metric rows
-      ratio_rows <- player_max_forces %>%
-        transmute(
-          player_id, player_name,
-          date = as_of_date,
-          datetime = as.POSIXct(as_of_date),
-          source = "ForceFrame",
-          test_type = "ForceFrame",
-          metric_name = "Abduction to Adduction Ratio (Recalc)",
-          metric_value = `Abduction to Adduction Ratio (Recalc)`,
-          units = "ratio",
-          pos_group = NA_character_, pos_position = NA_character_, pos_year = NA_integer_,
-          class_year = NA_character_, class_year_base = NA_character_, is_redshirt = NA_character_,
-          height_display = NA_character_, weight_display = NA_character_,
-          wingspan_display = NA_character_, hand_display = NA_character_, arm_display = NA_character_
-        )
-      
-      asym_rows <- player_max_forces %>%
-        transmute(
-          player_id, player_name,
-          date = as_of_date,
-          datetime = as.POSIXct(as_of_date),
-          source = "ForceFrame",
-          test_type = "ForceFrame",
-          metric_name = "Abduction-Adduction Asymmetry (%)",
-          metric_value = `Abduction-Adduction Asymmetry (%)`,
-          units = "%",
-          pos_group = NA_character_, pos_position = NA_character_, pos_year = NA_integer_,
-          class_year = NA_character_, class_year_base = NA_character_, is_redshirt = NA_character_,
-          height_display = NA_character_, weight_display = NA_character_,
-          wingspan_display = NA_character_, hand_display = NA_character_, arm_display = NA_character_
-        )
-      
-      vald_tests_long_ui <- bind_rows(vald_tests_long_ui, ratio_rows, asym_rows)
-      
-      # Force include the raw max forces, ratio, and asymmetry
-      force_include_keys <- c(
-        force_include_keys,
-        "ForceFrame|ForceFrame|Max Adduction Force",
-        "ForceFrame|ForceFrame|Max Abduction Force",
-        forceframe_ratio_key,
-        forceframe_asym_key,
-        "ForceFrame|ForceFrame|Abduction Asymmetry (%)",
-        "ForceFrame|ForceFrame|Adduction Asymmetry (%)"
-      )
-    }
-  }
-}
-                                    
-# ============================================================
-# BEST and LATEST per player x metric_key (as-of)
-# ============================================================
+as_of_date <- Sys.Date()
 
-base <- vald_tests_long_ui %>%
+# ---------------------------
+# players table
+# ---------------------------
+
+players <- vald_tests_long_ui %>%
+  distinct(player_id, player_name) %>%
+  left_join(
+    player_metadata %>% select(player_id,
+      any_of(c("pos_group","pos_position","class_year","class_year_base","is_redshirt",
+               "height_display","weight_display","wingspan_display","hand_display","arm_display"))),
+    by = "player_id"
+  )
+
+message("  players: ", nrow(players))
+
+# ---------------------------
+# vald_latest_wide
+# ---------------------------
+
+vald_latest_wide <- vald_tests_long_ui %>%
   filter(date <= as_of_date) %>%
-  mutate(val_num = suppressWarnings(as.numeric(metric_value)))
-
-# Catapult metrics that should be SUMMED across all drills/periods on the most
-# recent day (not just one row). This handles drill-level breakdown in catapult.rds.
-cat_daily_sum_keys <- paste0("Catapult|Catapult|",
-  c("Total Player Load", "Explosive Efforts",
-    "High Speed Distance (12 mph)", "Sprint Distance (16 mph)"))
-
-# For Catapult sum metrics: filter to the most recent date, then sum all rows
-latest_long_catsum <- base %>%
-  filter(metric_key %in% cat_daily_sum_keys) %>%
-  group_by(player_id, player_name, metric_key) %>%
-  filter(date == max(date, na.rm = TRUE)) %>%
-  summarise(latest_value = sum(val_num, na.rm = TRUE), .groups = "drop")
-
-# For everything else: single latest row (original behavior)
-latest_long_other <- base %>%
-  filter(!metric_key %in% cat_daily_sum_keys) %>%
   group_by(player_id, player_name, metric_key) %>%
   slice_max(date, n = 1, with_ties = FALSE) %>%
   ungroup() %>%
-  transmute(player_id, player_name, metric_key, latest_value = val_num)
+  select(player_id, player_name, metric_key, latest_value = metric_value) %>%
+  tidyr::pivot_wider(names_from = metric_key, values_from = latest_value)
 
-latest_long <- bind_rows(latest_long_catsum, latest_long_other)
+# ---------------------------
+# Lifts (manual overrides)
+# ---------------------------
 
-best_long <- base %>%
-  group_by(player_id, player_name, metric_key) %>%
-  summarise(
-    best_value = {
-      x  <- val_num
-      mk <- dplyr::first(metric_key)
-      if (all(is.na(x))) NA_real_
-      else if (is_flip_metric(mk)) min(x, na.rm = TRUE)
-      else                         max(x, na.rm = TRUE)
-    },
-    .groups = "drop"
-  )
+if (nrow(overrides) > 0) {
+  lifts_long <- vald_tests_long_ui %>%
+    filter(source == "Lifts") %>%
+    filter(date <= as_of_date)
+  
+  if (nrow(lifts_long) > 0) {
+    lifts_best <- lifts_long %>%
+      group_by(player_id, player_name, metric_key) %>%
+      slice_max(metric_value, n = 1, with_ties = FALSE) %>%
+      ungroup()
+    
+    lifts_latest <- lifts_long %>%
+      group_by(player_id, player_name, metric_key) %>%
+      slice_max(date, n = 1, with_ties = FALSE) %>%
+      ungroup()
+  } else {
+    lifts_best   <- tibble::tibble()
+    lifts_latest <- tibble::tibble()
+  }
+} else {
+  lifts_best   <- tibble::tibble()
+  lifts_latest <- tibble::tibble()
+}
 
-# ============================================================
-# HYBRID ROSTER VALUES
-# ============================================================
+# ---------------------------
+# Roster metric selection logic
+# ---------------------------
 
-roster_values_long <- best_long %>%
-  left_join(latest_long, by = c("player_id", "player_name", "metric_key")) %>%
-  mutate(
-    metric_value_roster = if_else(
-      latest_only_metric_name(metric_key),
-      latest_value,
-      best_value
+if (file.exists(OVERRIDES_PATH)) {
+  overrides_data <- readRDS(OVERRIDES_PATH)
+  if (nrow(overrides_data) > 0 && "source" %in% names(overrides_data)) {
+    lift_keys <- vald_tests_long_ui %>%
+      filter(source == "Lifts") %>%
+      distinct(metric_key) %>%
+      pull(metric_key)
+    force_include_keys <- c(
+      force_include_keys,
+      lift_keys
     )
-  ) %>%
-  select(player_id, player_name, metric_key, metric_value_roster)
+  }
+}
 
 # ============================================================
 # STEP 1: Build FULL roster_view
@@ -915,6 +698,37 @@ pos_cols <- c(
   "wingspan_display", "hand_display", "arm_display"
 )
 id_cols <- c("player_id", "player_name", pos_cols, "as_of_date")
+
+roster_values_long <- vald_tests_long_ui %>%
+  filter(date <= as_of_date) %>%
+  group_by(player_id, player_name, metric_key) %>%
+  summarise(
+    latest_value = {
+      idx <- which.max(date)
+      metric_value[idx]
+    },
+    best_value = {
+      lb <- is_lower_better(metric_key[1])
+      mr <- is_most_recent(metric_key[1])
+      if (mr) {
+        idx <- which.max(date)
+        metric_value[idx]
+      } else if (lb) {
+        min(metric_value, na.rm = TRUE)
+      } else {
+        max(metric_value, na.rm = TRUE)
+      }
+    },
+    .groups = "drop"
+  ) %>%
+  mutate(
+    metric_value_roster = ifelse(
+      is_most_recent(metric_key),
+      latest_value,
+      best_value
+    )
+  ) %>%
+  select(player_id, player_name, metric_key, metric_value_roster)
 
 roster_view <- roster_values_long %>%
   tidyr::pivot_wider(names_from = metric_key, values_from = metric_value_roster) %>%
@@ -959,14 +773,13 @@ fill_summary <- lapply(sources, function(s) {
       names_sep = "__",
       values_to = "value"
     ) %>%
-    pivot_wider(names_from = stat, values_from = value) %>%
-    mutate(source = s) %>%
-    arrange(fill_frac)
-}) %>% bind_rows()
+    pivot_wider(names_from = stat, values_from = value)
+}) %>%
+  bind_rows()
 
 keep_roster_metrics <- fill_summary %>%
   filter(
-    fill_frac >= filled_threshold,
+    fill_frac >= 0.25,
     n_unique  >  1,
     is.na(zero_frac) | zero_frac <= 0.90
   ) %>%
@@ -976,7 +789,6 @@ force_include_keys <- c(
   "Catapult|Catapult|Explosive Efforts",
   "Catapult|Catapult|High Speed Distance (12 mph)",
   "Catapult|Catapult|Sprint Distance (16 mph)",
-  "SmartSpeed|Flying 10s|Best Split Seconds",
   "SmartSpeed|Fly 10-15|Best Split Seconds",
   paste0("Lifts|Strength|", OVERRIDE_TESTS)
 )
@@ -991,25 +803,13 @@ vald_best_wide <- vald_tests_long_ui %>%
   filter(date <= as_of_date) %>%
   group_by(player_id, player_name, metric_key) %>%
   summarise(
-    metric_value = {
-      x  <- suppressWarnings(as.numeric(metric_value))
-      mk <- dplyr::first(metric_key)
-      if (all(is.na(x))) NA_real_
-      else if (is_flip_metric(mk)) min(x, na.rm = TRUE)
-      else                         max(x, na.rm = TRUE)
+    best_value = {
+      lb <- is_lower_better(metric_key[1])
+      if (lb) min(metric_value, na.rm = TRUE) else max(metric_value, na.rm = TRUE)
     },
     .groups = "drop"
   ) %>%
-  left_join(
-    player_metadata %>%
-      select(player_id, pos_group, pos_position,
-             class_year, class_year_base, is_redshirt,
-             height_display, weight_display,
-             wingspan_display, hand_display, arm_display),
-    by = "player_id"
-  ) %>%
-  pivot_wider(names_from = metric_key, values_from = metric_value) %>%
-  mutate(as_of_date = as_of_date)
+  tidyr::pivot_wider(names_from = metric_key, values_from = best_value)
 
 # ============================================================
 # STEP 4: Filter roster_view to kept metrics + round
@@ -1017,171 +817,91 @@ vald_best_wide <- vald_tests_long_ui %>%
 
 roster_view <- roster_view %>%
   select(any_of(c(id_cols, keep_roster_metrics))) %>%
-  mutate(across(where(is.numeric), ~ round(.x, 2)))
-
-# ============================================================
-# STEP 5: Build roster_best_view
-# ============================================================
+  mutate(across(where(is.numeric), ~ round(., 2)))
 
 roster_best_view <- vald_best_wide %>%
-  select(any_of(c(id_cols, keep_roster_metrics))) %>%
-  mutate(across(where(is.numeric), ~ round(.x, 2)))
-
-# ============================================================
-# STEP 6: Build vald_latest_wide
-# ============================================================
-
-vald_latest_wide <- vald_tests_long_ui %>%
-  filter(date <= as_of_date) %>%
-  group_by(player_id, player_name, metric_key) %>%
-  slice_max(date, n = 1, with_ties = FALSE) %>%
-  ungroup() %>%
-  select(
-    player_id, player_name,
-    pos_group, pos_position,
-    class_year, class_year_base, is_redshirt,
-    height_display, weight_display,
-    wingspan_display, hand_display, arm_display,
-    metric_key, metric_value
+  select(any_of(c("player_id", "player_name", keep_roster_metrics))) %>%
+  left_join(
+    player_metadata %>% select(player_id, all_of(pos_cols)),
+    by = "player_id"
   ) %>%
-  pivot_wider(names_from = metric_key, values_from = metric_value) %>%
-  mutate(as_of_date = as_of_date)
-
-# ============================================================
-# STEP 7: Position-based percentiles
-# ============================================================
-
-latest_preferred_keys <- keep_roster_metrics[
-  grepl(
-    "Athlete Standing Weight|Total Player Load|Player Load Per Minute|High Speed Distance|Sprint Distance|Explosive Efforts|Total Distance",
-    keep_roster_metrics,
-    ignore.case = TRUE
+  mutate(
+    as_of_date = as_of_date,
+    across(where(is.numeric), ~ round(., 2))
   )
-]
 
-best_only_keys <- setdiff(
-  intersect(keep_roster_metrics, names(vald_best_wide)),
-  latest_preferred_keys
-)
+message("  roster_view: ", nrow(roster_view), " rows, ", ncol(roster_view) - length(id_cols), " roster metrics")
 
-pos_pct_col <- if ("pos_position" %in% names(vald_best_wide)) "pos_position" else NULL
+# ============================================================
+# STEP 5: Position-based percentiles
+# ============================================================
 
-roster_percentiles_pos_long  <- NULL
-roster_percentiles_pos_wide  <- NULL
-roster_best_percentiles_pos_long <- NULL
-roster_best_percentiles_pos_wide <- NULL
-
-if (!is.null(pos_pct_col)) {
-
-  best_pcts <- vald_best_wide %>%
-    select(player_id, player_name, !!pos_pct_col, any_of(best_only_keys)) %>%
-    pivot_longer(
-      cols      = any_of(best_only_keys),
-      names_to  = "metric_key",
-      values_to = "metric_value"
-    ) %>%
-    group_by(metric_key, .data[[pos_pct_col]]) %>%
-    mutate(
-      percentile = if_else(
-        is_flip_metric(metric_key),
-        pct_rank_100(-metric_value),
-        pct_rank_100(metric_value)
-      )
-    ) %>%
-    ungroup()
-
-  latest_raw <- vald_tests_long_ui %>%
-    filter(
-      date <= as_of_date,
-      metric_key %in% latest_preferred_keys
-    ) %>%
-    mutate(val_num = suppressWarnings(as.numeric(metric_value))) %>%
-    group_by(player_id, player_name, metric_key) %>%
-    slice_max(date, n = 1, with_ties = FALSE) %>%
-    ungroup() %>%
-    filter(!is.na(val_num), !is.na(pos_position))
-
-  latest_pcts <- latest_raw %>%
-    select(player_id, player_name, pos_position, metric_key, val_num) %>%
-    rename(metric_value = val_num) %>%
-    group_by(metric_key, pos_position) %>%
-    mutate(
-      percentile = if_else(
-        is_flip_metric(metric_key),
-        pct_rank_100(-metric_value),
-        pct_rank_100(metric_value)
-      )
-    ) %>%
-    ungroup() %>%
-    rename(!!pos_pct_col := pos_position)
-
-  roster_best_percentiles_pos_long <- bind_rows(best_pcts, latest_pcts)
-  roster_percentiles_pos_long      <- roster_best_percentiles_pos_long
-
-  roster_best_percentiles_pos_wide <- roster_best_percentiles_pos_long %>%
-    select(player_id, metric_key, percentile) %>%
-    pivot_wider(names_from = metric_key, values_from = percentile)
-
-  roster_percentiles_pos_wide <- roster_best_percentiles_pos_wide
-}
+roster_percentiles_long <- roster_view %>%
+  select(player_id, player_name, pos_position, all_of(keep_roster_metrics)) %>%
+  tidyr::pivot_longer(
+    cols      = all_of(keep_roster_metrics),
+    names_to  = "metric_key",
+    values_to = "metric_value"
+  ) %>%
+  group_by(pos_position, metric_key) %>%
+  mutate(
+    percentile = compute_percentile(metric_value, lower_is_better = is_lower_better(metric_key[1]))
+  ) %>%
+  ungroup()
 
 roster_percentiles_wide <- roster_view %>%
-  select(player_id) %>%
-  left_join(roster_percentiles_pos_wide, by = "player_id")
-
-roster_percentiles_long <- roster_best_percentiles_pos_long %>%
-  transmute(player_id, player_name, metric_key, percentile)
+  left_join(
+    roster_percentiles_long %>%
+      select(player_id, metric_key, percentile) %>%
+      tidyr::pivot_wider(
+        names_from  = metric_key,
+        values_from = percentile,
+        names_glue  = "{metric_key}__pctl"
+      ),
+    by = "player_id"
+  )
 
 # ============================================================
-# STEP 9: Athleticism Score (weighted position percentiles)
+# Best-value percentiles (for athleticism score)
 # ============================================================
 
-athleticism_key <- "Composite|Score|Athleticism Score"
+roster_best_percentiles_pos_long <- roster_best_view %>%
+  select(player_id, player_name, pos_position, all_of(intersect(keep_roster_metrics, names(roster_best_view)))) %>%
+  tidyr::pivot_longer(
+    cols      = all_of(intersect(keep_roster_metrics, names(roster_best_view))),
+    names_to  = "metric_key",
+    values_to = "metric_value"
+  ) %>%
+  group_by(pos_position, metric_key) %>%
+  mutate(
+    percentile = compute_percentile(metric_value, lower_is_better = is_lower_better(metric_key[1]))
+  ) %>%
+  ungroup()
 
-find_key <- function(source_name, test_type = NULL, metric_name) {
-  cand <- keep_roster_metrics[startsWith(keep_roster_metrics, paste0(source_name, "|"))]
-  if (length(cand) == 0) return(NA_character_)
-  parts       <- strsplit(cand, "\\|")
-  cand_source <- vapply(parts, function(x) x[1], character(1))
-  cand_test   <- vapply(parts, function(x) if (length(x) >= 2) x[2] else NA_character_, character(1))
-  cand_metric <- vapply(parts, function(x) if (length(x) >= 3) x[3] else NA_character_, character(1))
-  norm <- function(s) {
-    s %>%
-      stringr::str_squish() %>%
-      stringr::str_to_lower() %>%
-      stringr::str_replace_all("[\\(\\)\\[\\]]", "") %>%
-      stringr::str_replace_all("[^a-z0-9\\s\\-]", "") %>%
-      stringr::str_squish()
-  }
-  keep <- norm(cand_source) == norm(source_name) &
-    norm(cand_metric) == norm(metric_name)
-  if (!is.null(test_type)) keep <- keep & norm(cand_test) == norm(test_type)
-  hits <- cand[keep]
-  if (length(hits) >= 1) hits[1] else NA_character_
-}
+# ============================================================
+# Athleticism Score
+# ============================================================
 
-find_first_existing <- function(source_name, metric_names, test_type = NULL) {
-  for (nm in metric_names) {
-    k <- find_key(source_name, test_type = test_type, metric_name = nm)
-    if (!is.na(k)) return(k)
+find_first_existing <- function(source_prefix, metric_names, test_type = NULL) {
+  for (mn in metric_names) {
+    if (!is.null(test_type)) {
+      k <- paste(source_prefix, test_type, mn, sep = "|")
+    } else {
+      k <- paste(source_prefix, mn, sep = "|")
+    }
+    if (k %in% names(roster_best_view)) return(k)
   }
   NA_character_
 }
 
-k_jump <- find_first_existing("ForceDecks", c(
-  "Jump Height (Imp-Mom) in Inches", "Jump Height (Imp-Mom)",
-  "Jump Height Imp-Mom in Inches",   "Jump Height Imp-Mom", "Jump Height"
-))
-k_rsi  <- find_first_existing("ForceDecks", c(
-  "RSI-modified (Imp-Mom)", "RSI-modified", "RSI Modified",
-  "RSI Modified (Imp-Mom)", "RSI-modified (Imp-Mom) in Inches"
-))
-k_ebi  <- find_first_existing("ForceDecks", c("Eccentric Braking Impulse"))
-k_pp   <- find_first_existing("ForceDecks", c("Force at Peak Power"))
-k_lmf  <- find_first_existing("NordBord",   c("L Max Force"))
-k_rmf  <- find_first_existing("NordBord",   c("R Max Force"))
-k_imb  <- find_first_existing("NordBord",   c("Nordic Asymmetry (%)", "Max Imbalance"))
-k_maxv <- find_first_existing("Catapult",   c("Max Vel", "Max Velocity", "Max V"))
+k_jump <- find_first_existing("ForceDecks", c("jumpHeight","Jump Height","peakPower","Peak Power"))
+k_rsi  <- find_first_existing("ForceDecks", c("rsi","RSI","reactivestrenindex"))
+k_ebi  <- find_first_existing("ForceDecks", c("eccentricBrakeImpulse","Eccentric Brake Impulse"))
+k_pp   <- find_first_existing("ForceDecks", c("peakPower","Peak Power","peakPowerPerBodyMass","Peak Power Per Body Mass"))
+k_lmf  <- find_first_existing("NordBord",   c("leftMaxForce","Left Max Force"))
+k_rmf  <- find_first_existing("NordBord",   c("rightMaxForce","Right Max Force"))
+k_imb  <- find_first_existing("NordBord",   c("imbalance","Imbalance"))
+k_maxv <- find_first_existing("Catapult",   c("maxVelocity","Max Velocity"))
 k_acc  <- find_first_existing("Catapult",   c("Max Effort Acceleration", "Max Effort Accel"))
 k_dec  <- find_first_existing("Catapult",   c("Max Effort Deceleration", "Max Effort Decel"))
 k_fly10 <- find_first_existing("SmartSpeed", metric_names = c("Best Split Seconds"), test_type = "Flying 10s")
@@ -1214,8 +934,11 @@ ath <- pcts_wide %>%
     maxv  = safe_col(., k_maxv),
     acc   = safe_col(., k_acc),
     dec   = safe_col(., k_dec),
-    fly10 = safe_col(., k_fly10),
-    fly10_15 = safe_col(., k_fly10_15),
+    fly10 = {
+      f10 <- safe_col(., k_fly10)
+      f15 <- safe_col(., k_fly10_15)
+      ifelse(!is.na(f10), f10, f15)
+    },
     lmf   = safe_col(., k_lmf),
     rmf   = safe_col(., k_rmf),
     mf    = ifelse(
@@ -1225,22 +948,12 @@ ath <- pcts_wide %>%
     ),
     imb   = safe_col(., k_imb),
     AthleticismScore = {
-      vs <- cbind(jump, rsi, ebi, pp, mf, imb, maxv, fly10, fly10_15, acc, dec)
-      colnames(vs) <- c("jump", "rsi", "ebi", "pp", "mf", "imb", "maxv", "fly10", "fly10_15", "acc", "dec")
+      vs <- cbind(jump, rsi, ebi, pp, mf, imb, maxv, fly10, acc, dec)
+      colnames(vs) <- c("jump", "rsi", "ebi", "pp", "mf", "imb", "maxv", "fly10", "acc", "dec")
       apply(vs, 1, function(v) {
         ok <- !is.na(v)
         if (!any(ok)) return(NA_real_)
-        # Weight fly10_15 if fly10 is not available
-        if (is.na(v["fly10"]) && !is.na(v["fly10_15"])) {
-          v["fly10"] <- v["fly10_15"]
-        }
-        w_use <- w
-        if (is.na(v["fly10_15"])) {
-          w_use <- w[-which(names(w) == "fly10")]
-        }
-        ok <- !is.na(v)
-        if (!any(ok)) return(NA_real_)
-        sum(w_use[ok] * v[ok]) / sum(w_use[ok])
+        sum(w[ok] * v[ok]) / sum(w[ok])
       })
     }
   ) %>%
@@ -1258,81 +971,78 @@ ath <- pcts_wide %>%
     AthleticismScore = round(AthleticismScore, 1)
   )
 
+athletics_key <- "Composite|Score|Athleticism Score"
+athleticism_key <- "Composite|Score|Athleticism Score"
+
 roster_view <- roster_view %>%
-  left_join(ath, by = c("player_id", "player_name")) %>%
+  left_join(ath %>% select(player_id, AthleticismScore), by = "player_id") %>%
   mutate(!!athleticism_key := AthleticismScore) %>%
   select(-AthleticismScore)
 
 roster_best_view <- roster_best_view %>%
-  left_join(ath, by = c("player_id","player_name")) %>%
+  left_join(ath %>% select(player_id, AthleticismScore), by = "player_id") %>%
   mutate(!!athleticism_key := AthleticismScore) %>%
   select(-AthleticismScore)
 
 keep_roster_metrics <- unique(c(keep_roster_metrics, athleticism_key))
 
-roster_percentiles_long <- roster_percentiles_long %>%
-  bind_rows(
-    ath %>% transmute(
-      player_id, player_name,
+roster_percentiles_long <- bind_rows(
+  roster_percentiles_long,
+  ath %>%
+    filter(!is.na(AthleticismScore)) %>%
+    transmute(
+      player_id,
+      player_name,
+      pos_position = NA_character_,
       metric_key = athleticism_key,
+      metric_value = AthleticismScore,
       percentile = AthleticismScore
     )
+)
+
+# ============================================================
+# Roster percentiles wide (final, with athleticism)
+# ============================================================
+
+roster_percentiles_wide <- roster_view %>%
+  left_join(
+    roster_percentiles_long %>%
+      select(player_id, metric_key, percentile) %>%
+      tidyr::pivot_wider(
+        names_from  = metric_key,
+        values_from = percentile,
+        names_glue  = "{metric_key}__pctl"
+      ),
+    by = "player_id"
   )
 
+message("  roster_view: ", nrow(roster_view), " rows (final w/ athleticism)")
+
 # ============================================================
-# STEP 10: Acute:Chronic Workload Ratio (ACWR)
-# Acute   = sum of Total Player Load over last 7 days
-# Chronic = average weekly load over last 28 days (28-day total / 4)
-# ACWR    = Acute / Chronic
-# Color zones (from VALD/Tim Gabbett framework):
-#   < 0.80   = Undertrained
-#   0.80-1.30 = Sweet Spot
-#   1.31-1.50 = Warning Zone
-#   > 1.50   = Danger Zone
+# ACWR
 # ============================================================
 
-acwr_key <- "Catapult|Catapult|ACWR"
+acute_days  <- 7L
+chronic_days <- 28L
 
-acwr_raw <- catapult_tests_long %>%
-  filter(metric_name == "Total Player Load") %>%
-  mutate(val_num = suppressWarnings(as.numeric(metric_value)))
-
-acwr_per_player <- acwr_raw %>%
+acwr_per_player <- catapult %>%
+  filter(!is.na(date)) %>%
   group_by(player_id, player_name) %>%
   summarise(
-    acute   = sum(val_num[date >= (as_of_date - 6)  & date <= as_of_date], na.rm = TRUE),
-    chronic = sum(val_num[date >= (as_of_date - 27) & date <= as_of_date], na.rm = TRUE) / 4,
+    acute  = {
+      cutoff <- as_of_date - acute_days
+      mean(metric_value[date > cutoff & metric_name == "playerLoad"], na.rm = TRUE)
+    },
+    chronic = {
+      cutoff <- as_of_date - chronic_days
+      mean(metric_value[date > cutoff & metric_name == "playerLoad"], na.rm = TRUE)
+    },
     .groups = "drop"
   ) %>%
   mutate(
-    acwr_value = if_else(chronic > 0 & is.finite(chronic),
-                         round(acute / chronic, 2),
-                         NA_real_)
+    acwr = ifelse(chronic > 0, round(acute / chronic, 2), NA_real_)
   ) %>%
-  filter(!is.na(acwr_value), is.finite(acwr_value))
+  filter(!is.na(acwr))
 
-if (nrow(acwr_per_player) > 0) {
-  acwr_join <- acwr_per_player %>% select(player_id, acwr_value)
-
-  roster_view <- roster_view %>%
-    left_join(acwr_join, by = "player_id") %>%
-    rename(!!acwr_key := acwr_value)
-
-  keep_roster_metrics <- unique(c(keep_roster_metrics, acwr_key))
-}
-
-# ============================================================
-# Summary messages
-# ============================================================
-
-message("Built objects:")
-message("  vald_tests_long:       ", nrow(vald_tests_long),  " rows (NordBord + ForceDecks + Catapult)")
-message("  players:               ", nrow(players),           " players")
-message("  vald_latest_wide:      ", nrow(vald_latest_wide),  " rows, ", length(metric_cols), " metrics")
-message("  vald_best_wide:        ", nrow(vald_best_wide),    " rows")
-message("  roster metrics kept:   ", length(keep_roster_metrics),
-        " (>= ", filled_threshold * 100, "% filled)")
-message("  roster_view:           ", nrow(roster_view),       " rows")
-message("  roster_best_view:      ", nrow(roster_best_view),  " rows")
-message("  roster_percentiles_*:  computed for kept roster metrics")
-message("  ACWR computed for:     ", nrow(acwr_per_player), " players")
+message("  ACWR for ", nrow(acwr_per_player), " players")
+message("metrics_automated.r done")
