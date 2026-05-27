@@ -774,13 +774,17 @@ radar_catapult_labels    <- tibble::tibble(
 ) %>% filter(!is.na(metric_key)) %>%
   mutate(radar_label = if_else(radar_label == "Total Player Load", "Recent Player Load", radar_label))
 
-smartspeed_metric_names    <- c("Best Split Seconds")
-smartspeed_metric_keys_map <- pick_best_keys_for_metric_names("SmartSpeed", smartspeed_metric_names, fill_summary)
-radar_smartspeed_metrics   <- unname(smartspeed_metric_keys_map[!is.na(smartspeed_metric_keys_map)])
-radar_smartspeed_labels    <- tibble::tibble(
-  metric_key  = unname(smartspeed_metric_keys_map),
-  radar_label = c("Flying 10s")
-) %>% filter(!is.na(metric_key))
+FLY10_KEY   <- "SmartSpeed|Flying 10s|Best Split Seconds"
+FLY1015_KEY <- "SmartSpeed|Fly 10-15|Best Split Seconds"
+
+radar_smartspeed_metrics <- c(FLY10_KEY, FLY1015_KEY)[
+  c(FLY10_KEY, FLY1015_KEY) %in% keep_roster_metrics
+]
+
+radar_smartspeed_labels <- tibble::tibble(
+  metric_key  = c(FLY10_KEY, FLY1015_KEY),
+  radar_label = c("Flying 10s", "Fly 10-15")
+) %>% filter(metric_key %in% keep_roster_metrics)
 
 lift_metric_names    <- c("Vertical Jump", "Squat", "Bench", "Clean")
 lift_metric_keys_map <- pick_best_keys_for_metric_names("Lifts", lift_metric_names, fill_summary)
@@ -1328,8 +1332,8 @@ server <- function(input, output, session) {
       "ISO L Max Impulse", "ISO R Max Impulse", "ISO Asymmetry (%)",
       "Recent Player Load", "Player Load Per Minute", "High Speed Distance (12 mph)",
       "Sprint Distance (16 mph)", "Explosive Efforts", "Max Effort Acceleration",
-      "Max Effort Deceleration", "Max Vel", "Flying 10s"
-    )
+      "Max Effort Deceleration", "Max Vel", "Flying 10s", "Fly 10-15"
+  )
     
     label_df <- label_df %>%
       mutate(order_idx = match(radar_label, axis_order)) %>%
@@ -1503,14 +1507,17 @@ server <- function(input, output, session) {
     # --- Identify ordering keys ---
     max_vel_key <- keep_roster_metrics[grepl("\\|Max Vel$", keep_roster_metrics)][1]
     flying10_key <- keep_roster_metrics[grepl("\\|Flying 10s\\|Best Split Seconds$", keep_roster_metrics)][1]
+    fly1015_key  <- keep_roster_metrics[grepl("\\|Fly 10-15\\|Best Split Seconds$",  keep_roster_metrics)][1]    
     total_load_key <- keep_roster_metrics[grepl("\\|Total Player Load$", keep_roster_metrics)][1]
     
-    # Keep Flying 10s after Max Vel only if it is already included
+    # Keep Flying 10s and Fly 10-15 after Max Vel
     if (!is.na(max_vel_key) && !is.na(flying10_key) && flying10_key %in% metric_show) {
-      metric_show <- metric_show[metric_show != flying10_key]
+      sprint_keys <- c(flying10_key,
+                       if (!is.na(fly1015_key) && fly1015_key %in% metric_show) fly1015_key)
+      metric_show <- metric_show[!metric_show %in% sprint_keys]
       pos <- match(max_vel_key, metric_show)
-      if (!is.na(pos)) metric_show <- append(metric_show, flying10_key, after = pos)
-      else             metric_show <- c(metric_show, flying10_key)
+      if (!is.na(pos)) metric_show <- append(metric_show, sprint_keys, after = pos)
+      else             metric_show <- c(metric_show, sprint_keys)
     }
 
     # Force ACWR after Total Player Load
@@ -1583,7 +1590,11 @@ server <- function(input, output, session) {
 
     # ---- CLEAN COLUMN NAMES ----
     disp_names <- vapply(colnames(df_disp), function(x) {
-      if (grepl("\\|", x)) sub("^.*\\|", "", x) else x
+      if (grepl("\\|", x)) {
+        parts <- strsplit(x, "\\|")[[1]]
+        if (length(parts) >= 2 && parts[1] == "SmartSpeed") return(parts[2])
+        sub("^.*\\|", "", x)
+      } else x
     }, character(1))
     disp_names <- dplyr::recode(
       disp_names,
@@ -1597,7 +1608,6 @@ server <- function(input, output, session) {
     disp_names <- gsub("Jump Height \\(Imp-Mom\\)",           "Jump Height", disp_names)
     disp_names <- gsub(" in Inches", "",        disp_names)
     disp_names <- gsub("Total Player Load",    "Recent Player Load", disp_names)
-    disp_names <- gsub("^Best Split Seconds$", "Flying 10s",         disp_names)
     disp_names <- gsub("^Abduction Asymmetry \\(%\\)$", "Abduction Asymmetry (%)", disp_names)
     disp_names <- gsub("^Adduction Asymmetry \\(%\\)$", "Adduction Asymmetry (%)", disp_names)
     disp_names <- gsub("^ISO Prone ", "ISO ", disp_names)    
@@ -2333,7 +2343,14 @@ server <- function(input, output, session) {
     }
     
     remaining_cols <- setdiff(names(df_vals), c(front_cols, ordered_metric_cols))
-    
+
+    # Move Fly 10-15 from remaining into ordered, right after Flying 10s
+    if ("Flying 10s" %in% ordered_metric_cols && "Fly 10-15" %in% remaining_cols) {
+      remaining_cols <- remaining_cols[remaining_cols != "Fly 10-15"]
+      pos_fly <- match("Flying 10s", ordered_metric_cols)
+      ordered_metric_cols <- append(ordered_metric_cols, "Fly 10-15", after = pos_fly)
+    }
+
     df_vals <- df_vals %>%
       dplyr::select(dplyr::any_of(front_cols), dplyr::any_of(ordered_metric_cols), dplyr::any_of(remaining_cols))
     
@@ -2451,8 +2468,8 @@ server <- function(input, output, session) {
       "ISO L Max Impulse", "ISO R Max Impulse", "ISO Asymmetry (%)",
       "Recent Player Load", "Player Load Per Minute", "High Speed Distance (12 mph)",
       "Sprint Distance (16 mph)", "Explosive Efforts", "Max Effort Acceleration",
-      "Max Effort Deceleration", "Max Vel", "Flying 10s"
-    )
+      "Max Effort Deceleration", "Max Vel", "Flying 10s", "Fly 10-15"
+  )
     
     axis_levels <- axis_order[axis_order %in% unique(long$axis)]
     if (length(axis_levels) == 0) {
