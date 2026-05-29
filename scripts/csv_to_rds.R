@@ -13,7 +13,7 @@ files <- c(
   "catapult",
   "manual_overrides",
   "smartspeed",
-  "forceframe"
+  "forceframe",
   "rtp"
 )
 
