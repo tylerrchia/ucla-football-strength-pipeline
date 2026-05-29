@@ -1251,6 +1251,36 @@ ui <- navbarPage(
   )
 )
 
+# ============== RTP Tab ==============
+  tabPanel(
+    "RTP",
+    sidebarLayout(
+      sidebarPanel(
+        selectInput("rtp_player", "Player", choices = NULL),
+        selectInput("rtp_test_type", "Test Type", choices = NULL),
+        selectInput("rtp_metrics", "Metrics", choices = NULL, multiple = TRUE),
+        tags$hr(),
+        selectInput("rtp_chart_metric", "Chart Metric", choices = NULL),
+        width = 3
+      ),
+      mainPanel(
+        h4(textOutput("rtp_table_title")),
+        DTOutput("rtp_table"),
+        tags$hr(),
+        div(
+          style = "position:relative;",
+          tags$button(
+            "⛶",
+            onclick = "var el=this.parentElement; if(!document.fullscreenElement){el.requestFullscreen();}else{document.exitFullscreen();}",
+            style = "position:absolute;top:4px;right:4px;z-index:999;background:rgba(255,255,255,0.85);border:1px solid #ccc;border-radius:4px;padding:2px 8px;font-size:16px;cursor:pointer;"
+          ),
+          plotlyOutput("rtp_bar_chart", height = 400)
+        ),
+        width = 9
+      )
+    )
+  )
+
 # ---------------------------
 # Server
 # ---------------------------
@@ -2856,6 +2886,150 @@ server <- function(input, output, session) {
     p <- p + theme_minimal(base_size = 12) +
       labs(x = input$corr_x_metric, y = res$y_plot_nm, title = paste0("Latest snapshot scatter: ", res$y_plot_nm, " vs ", input$corr_x_metric))
     ggplotly(p, tooltip = "text")
+  })
+
+  # ---------- RTP Tab ----------
+
+  observe({
+    req(nrow(rtp_data) > 0)
+    players <- sort(unique(rtp_data$name))
+    current <- input$rtp_player
+    sel <- if (!is.null(current) && current %in% players) current else players[1]
+    updateSelectInput(session, "rtp_player", choices = players, selected = sel)
+  })
+
+  observe({
+    req(input$rtp_player)
+    tests <- rtp_data %>%
+      filter(name == input$rtp_player) %>%
+      pull(testType) %>% unique() %>% sort()
+    current <- input$rtp_test_type
+    sel <- if (!is.null(current) && current %in% tests) current else tests[1]
+    updateSelectInput(session, "rtp_test_type", choices = tests, selected = sel)
+  })
+
+  rtp_available_metrics <- reactive({
+    req(input$rtp_player, input$rtp_test_type)
+    df <- rtp_data %>% filter(name == input$rtp_player, testType == input$rtp_test_type)
+    if (nrow(df) == 0) return(character(0))
+    metric_cols <- setdiff(names(df), rtp_id_cols)
+    has_data <- sapply(metric_cols, function(m) any(!is.na(df[[m]])))
+    metric_cols[has_data]
+  })
+
+  observeEvent(rtp_available_metrics(), {
+    metrics <- rtp_available_metrics()
+    updateSelectInput(session, "rtp_metrics", choices = metrics, selected = metrics)
+    updateSelectInput(session, "rtp_chart_metric",
+                      choices = metrics,
+                      selected = metrics[grep("Jump Height", metrics)[1] %||% 1])
+  })
+
+  output$rtp_table_title <- renderText({
+    req(input$rtp_player, input$rtp_test_type)
+    test_label <- if (input$rtp_test_type == "CMJ") {
+      "Countermovement Jump"
+    } else if (input$rtp_test_type == "SLJ") {
+      "Single Leg Jump"
+    } else {
+      input$rtp_test_type
+    }
+    paste0(test_label, " — Best Rep (Jump Height) — ", input$rtp_player)
+  })
+
+  output$rtp_table <- renderDT({
+    req(input$rtp_player, input$rtp_test_type, length(input$rtp_metrics) > 0)
+    df <- rtp_data %>%
+      filter(name == input$rtp_player, testType == input$rtp_test_type) %>%
+      arrange(date)
+    if (nrow(df) == 0) {
+      return(DT::datatable(
+        data.frame(Message = "No RTP data available for this player/test."),
+        rownames = FALSE, options = list(dom = "t")
+      ))
+    }
+
+    date_labels <- format(df$date, "%d-%b")
+
+    df_long <- df %>%
+      select(date, all_of(input$rtp_metrics)) %>%
+      tidyr::pivot_longer(cols = -date, names_to = "Metric", values_to = "Value") %>%
+      mutate(
+        date_label = format(date, "%d-%b"),
+        Value = round(Value, 2)
+      ) %>%
+      select(-date) %>%
+      tidyr::pivot_wider(names_from = date_label, values_from = Value) %>%
+      # Preserve the column order by date
+      select(Metric, all_of(date_labels))
+
+    DT::datatable(
+      df_long,
+      rownames = FALSE,
+      selection = "none",
+      options = list(
+        scrollX = TRUE,
+        dom = "t",
+        pageLength = 50,
+        columnDefs = list(
+          list(targets = 0, className = "dt-nowrap"),
+          list(
+            targets = seq_len(ncol(df_long) - 1),
+            render = DT::JS(
+              "function(data,type,row,meta){
+                 if(data===null||data===undefined) return '';
+                 var num=Number(data);
+                 if(isNaN(num)) return data;
+                 if(type==='display'){
+                   if(Number.isInteger(num)) return num.toString();
+                   return num.toFixed(2).replace(/\\.?0+$/,'');
+                 }
+                 return num;
+               }"
+            )
+          )
+        )
+      )
+    ) %>%
+      DT::formatStyle("Metric", fontWeight = "bold", backgroundColor = "#f3f4f6")
+  })
+
+  output$rtp_bar_chart <- renderPlotly({
+    req(input$rtp_player, input$rtp_test_type, input$rtp_chart_metric)
+    df <- rtp_data %>%
+      filter(name == input$rtp_player, testType == input$rtp_test_type) %>%
+      arrange(date)
+    if (nrow(df) == 0 || !input$rtp_chart_metric %in% names(df)) return(NULL)
+
+    chart_df <- df %>%
+      transmute(
+        date,
+        date_label = format(date, "%d-%b"),
+        value = as.numeric(.data[[input$rtp_chart_metric]])
+      ) %>%
+      filter(!is.na(value))
+
+    if (nrow(chart_df) == 0) return(NULL)
+
+    plotly::plot_ly(
+      data = chart_df,
+      x = ~reorder(date_label, date),
+      y = ~value,
+      type = "bar",
+      marker = list(color = "#2774AE"),
+      text = ~round(value, 2),
+      textposition = "outside",
+      hovertemplate = "%{x}<br>%{y:.2f}<extra></extra>"
+    ) %>%
+      plotly::layout(
+        title = list(
+          text = paste0(input$rtp_chart_metric, "<br>",
+                        "<sup>", input$rtp_player, " — ", input$rtp_test_type, "</sup>")
+        ),
+        xaxis = list(title = "", tickangle = -45),
+        yaxis = list(title = ""),
+        margin = list(l = 60, r = 20, t = 80, b = 80)
+      )
   })
 }
 
