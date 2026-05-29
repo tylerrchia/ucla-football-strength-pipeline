@@ -57,6 +57,7 @@ MEAS_PATH      <- file.path(DATA_DIR, "measurements.rds")
 SMART_PATH     <- file.path(DATA_DIR, "smartspeed.rds")
 OVERRIDES_PATH <- file.path(DATA_DIR, "manual_overrides.rds")
 FORCEFRAME_PATH <- file.path(DATA_DIR, "forceframe.rds")
+RTP_PATH <- file.path(DATA_DIR, "rtp.rds")
 
 OVERRIDE_TESTS <- c("Vertical Jump", "Squat", "Bench", "Clean")
 
@@ -1308,7 +1309,26 @@ if (nrow(acwr_per_player) > 0) {
 
   keep_roster_metrics <- unique(c(keep_roster_metrics, acwr_key))
 }
+                        
+# ============================================================
+# RTP DATA
+# ============================================================
 
+rtp_data <- if (file.exists(RTP_PATH)) readRDS(RTP_PATH) else tibble::tibble()
+if (nrow(rtp_data) > 0) {
+  if ("name" %in% names(rtp_data)) {
+    rtp_data <- rtp_data %>% mutate(name = fix_player_name(name))
+  }
+  if ("date" %in% names(rtp_data) && !inherits(rtp_data$date, "Date")) {
+    rtp_data <- rtp_data %>% mutate(date = suppressWarnings(lubridate::mdy(date)))
+  }
+}
+
+rtp_id_cols <- c("profileId", "testId", "trialId", "firstName", "lastName",
+                 "groupName", "positionName", "testType", "date", "name")
+
+message("  rtp_data:              ", nrow(rtp_data), " rows")
+                        
 # ============================================================
 # Summary messages
 # ============================================================
