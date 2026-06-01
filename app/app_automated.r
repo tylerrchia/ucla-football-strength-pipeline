@@ -1323,93 +1323,6 @@ server <- function(input, output, session) {
     }, ignoreInit = TRUE)
   }
 
-  # Asymmetry formatting: maps asym column -> left/right columns + dominance logic
-  rtp_asym_map <- list(
-    # CMJ
-    list(asym = "Eccentric Deceleration Impulse Asym. (%)", left = "Eccentric Deceleration Impulse - Left", right = "Eccentric Deceleration Impulse - Right", neg = FALSE),
-    list(asym = "Concentric Impulse Asym. (%)", left = "Concentric Impulse - Left", right = "Concentric Impulse - Right", neg = FALSE),
-    list(asym = "Force at Zero Velocity Asym. (%)", left = "Force at Zero Velocity - Left", right = "Force at Zero Velocity - Right", neg = FALSE),
-    # SLJ
-    list(asym = "Jump Height Asym. (%)", left = "Jump Height (Imp-Mom) - Left", right = "Jump Height (Imp-Mom) - Right", neg = FALSE),
-    list(asym = "Peak Power/BM Asym. (%)", left = "Peak Power / BM - Left", right = "Peak Power / BM - Right", neg = FALSE),
-    list(asym = "RSI-Mod. Asym. (%)", left = "RSI-modified (Imp-Mom) - Left", right = "RSI-modified (Imp-Mom) - Right", neg = FALSE),
-    list(asym = "Ecc. Peak Velocity Asym. (%)", left = "Eccentric Peak Velocity - Left", right = "Eccentric Peak Velocity - Right", neg = TRUE),
-    list(asym = "Con. Peak Velocity Asym. (%)", left = "Concentric Peak Velocity - Left", right = "Concentric Peak Velocity - Right", neg = FALSE),
-    list(asym = "Countermovement Depth Asym. (%)", left = "Countermovement Depth - Left", right = "Countermovement Depth - Right", neg = TRUE),
-    list(asym = "Ecc. Decel. Impulse Asym. (%)", left = "Eccentric Deceleration Impulse - Left", right = "Eccentric Deceleration Impulse - Right", neg = FALSE),
-    list(asym = "Ecc. Decel. Impulse/BM Asym. (%)", left = "Eccentric Deceleration Impulse / BM - Left", right = "Eccentric Deceleration Impulse / BM - Right", neg = FALSE),
-    list(asym = "Con. Impulse Asym. (%)", left = "Concentric Impulse - Left", right = "Concentric Impulse - Right", neg = FALSE),
-    list(asym = "Con. Impulse/BM Asym. (%)", left = "Concentric Impulse (Abs) / BM - Left", right = "Concentric Impulse (Abs) / BM - Right", neg = FALSE),
-    list(asym = "Ecc. Duration Asym. (%)", left = "Eccentric Duration - Left", right = "Eccentric Duration - Right", neg = FALSE),
-    list(asym = "Con. Duration Asym. (%)", left = "Concentric Duration - Left", right = "Concentric Duration - Right", neg = FALSE)
-  )
-
-  cmj_metric_order <- c(
-    "Jump Height (Imp-Mom)",
-    "Peak Power / BM",
-    "RSI-modified (Imp-Mom)",
-    "Contraction Time",
-    "Eccentric Peak Velocity",
-    "Concentric Peak Velocity",
-    "Countermovement Depth",
-    "Eccentric Deceleration Impulse",
-    "Eccentric Deceleration Impulse Asym. (%)",
-    "Eccentric Deceleration Impulse - Left",
-    "Eccentric Deceleration Impulse - Right",
-    "Eccentric Deceleration Impulse / BM",
-    "Concentric Impulse",
-    "Concentric Impulse Asym. (%)",
-    "Concentric Impulse - Left",
-    "Concentric Impulse - Right",
-    "Concentric Impulse (Abs) / BM",
-    "Force at Zero Velocity",
-    "Force at Zero Velocity Asym. (%)",
-    "Force at Zero Velocity - Left",
-    "Force at Zero Velocity - Right"
-  )
-
-  slj_metric_order <- c(
-    "Jump Height (Imp-Mom) - Left",
-    "Jump Height (Imp-Mom) - Right",
-    "Jump Height Asym. (%)",
-    "Peak Power / BM - Left",
-    "Peak Power / BM - Right",
-    "Peak Power/BM Asym. (%)",
-    "RSI-modified (Imp-Mom) - Left",
-    "RSI-modified (Imp-Mom) - Right",
-    "RSI-Mod. Asym. (%)",
-    "Eccentric Peak Velocity - Left",
-    "Eccentric Peak Velocity - Right",
-    "Ecc. Peak Velocity Asym. (%)",
-    "Concentric Peak Velocity - Left",
-    "Concentric Peak Velocity - Right",
-    "Con. Peak Velocity Asym. (%)",
-    "Countermovement Depth - Left",
-    "Countermovement Depth - Right",
-    "Countermovement Depth Asym. (%)",
-    "Eccentric Deceleration Impulse - Left",
-    "Eccentric Deceleration Impulse - Right",
-    "Ecc. Decel. Impulse Asym. (%)",
-    "Eccentric Deceleration Impulse / BM - Left",
-    "Eccentric Deceleration Impulse / BM - Right",
-    "Ecc. Decel. Impulse/BM Asym. (%)",
-    "Concentric Impulse - Left",
-    "Concentric Impulse - Right",
-    "Con. Impulse Asym. (%)",
-    "Concentric Impulse (Abs) / BM - Left",
-    "Concentric Impulse (Abs) / BM - Right",
-    "Con. Impulse/BM Asym. (%)",
-    "Force at Zero Velocity - Left",
-    "Force at Zero Velocity - Right",
-    "Force at Zero Velocity Asym. (%)",
-    "Eccentric Duration - Left",
-    "Eccentric Duration - Right",
-    "Ecc. Duration Asym. (%)",
-    "Concentric Duration - Left",
-    "Concentric Duration - Right",
-    "Con. Duration Asym. (%)"
-  )
-
   make_all_toggle("group_filter")
   make_all_toggle("pos_filter")
   make_all_toggle("class_filter")
@@ -3036,41 +2949,18 @@ server <- function(input, output, session) {
       ))
     }
 
-    # --- Format asymmetry columns with % and L/R ---
-    for (m in rtp_asym_map) {
-      if (m$asym %in% names(df) && m$left %in% names(df) && m$right %in% names(df)) {
-        if (m$neg) {
-          # More negative = dominant (depth, ecc. peak velocity)
-          side <- dplyr::if_else(df[[m$left]] < df[[m$right]], "L", "R", missing = "")
-        } else {
-          # Higher = dominant (force, impulse, duration, etc.)
-          side <- dplyr::if_else(df[[m$left]] > df[[m$right]], "L", "R", missing = "")
-        }
-        df[[m$asym]] <- dplyr::if_else(
-          !is.na(df[[m$asym]]),
-          paste0(round(df[[m$asym]], 1), "% ", side),
-          NA_character_
-        )
-      }
-    }
-
     date_labels <- format(df$date, "%d-%b")
-
-    # Pick the right ordering based on test type
-    metric_order <- if (input$rtp_test_type == "CMJ") cmj_metric_order else slj_metric_order
 
     df_long <- df %>%
       select(date, all_of(input$rtp_metrics)) %>%
       tidyr::pivot_longer(cols = -date, names_to = "Metric", values_to = "Value") %>%
       mutate(
         date_label = format(date, "%d-%b"),
-        Value = ifelse(is.character(Value), Value, as.character(round(as.numeric(Value), 2))),
-        Metric = factor(Metric, levels = metric_order)
+        Value = round(Value, 2)
       ) %>%
-      arrange(Metric) %>%
-      mutate(Metric = as.character(Metric)) %>%
       select(-date) %>%
       tidyr::pivot_wider(names_from = date_label, values_from = Value) %>%
+      # Preserve the column order by date
       select(Metric, all_of(date_labels))
 
     DT::datatable(
@@ -3082,7 +2972,22 @@ server <- function(input, output, session) {
         dom = "t",
         pageLength = 50,
         columnDefs = list(
-          list(targets = 0, className = "dt-nowrap")
+          list(targets = 0, className = "dt-nowrap"),
+          list(
+            targets = seq_len(ncol(df_long) - 1),
+            render = DT::JS(
+              "function(data,type,row,meta){
+                 if(data===null||data===undefined) return '';
+                 var num=Number(data);
+                 if(isNaN(num)) return data;
+                 if(type==='display'){
+                   if(Number.isInteger(num)) return num.toString();
+                   return num.toFixed(2).replace(/\\.?0+$/,'');
+                 }
+                 return num;
+               }"
+            )
+          )
         )
       )
     ) %>%
