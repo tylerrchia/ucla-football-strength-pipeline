@@ -3089,50 +3089,6 @@ server <- function(input, output, session) {
       DT::formatStyle("Metric", fontWeight = "bold", backgroundColor = "#f3f4f6")
   })
 
-    date_labels <- format(df$date, "%d-%b")
-
-    df_long <- df %>%
-      select(date, all_of(input$rtp_metrics)) %>%
-      tidyr::pivot_longer(cols = -date, names_to = "Metric", values_to = "Value") %>%
-      mutate(
-        date_label = format(date, "%d-%b"),
-        Value = round(Value, 2)
-      ) %>%
-      select(-date) %>%
-      tidyr::pivot_wider(names_from = date_label, values_from = Value) %>%
-      # Preserve the column order by date
-      select(Metric, all_of(date_labels))
-
-    DT::datatable(
-      df_long,
-      rownames = FALSE,
-      selection = "none",
-      options = list(
-        scrollX = TRUE,
-        dom = "t",
-        pageLength = 50,
-        columnDefs = list(
-          list(targets = 0, className = "dt-nowrap"),
-          list(
-            targets = seq_len(ncol(df_long) - 1),
-            render = DT::JS(
-              "function(data,type,row,meta){
-                 if(data===null||data===undefined) return '';
-                 var num=Number(data);
-                 if(isNaN(num)) return data;
-                 if(type==='display'){
-                   if(Number.isInteger(num)) return num.toString();
-                   return num.toFixed(2).replace(/\\.?0+$/,'');
-                 }
-                 return num;
-               }"
-            )
-          )
-        )
-      )
-    ) %>%
-      DT::formatStyle("Metric", fontWeight = "bold", backgroundColor = "#f3f4f6")
-  })
 
   output$rtp_bar_chart <- renderPlotly({
     req(input$rtp_player, input$rtp_test_type, input$rtp_chart_metric)
