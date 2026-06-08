@@ -1260,6 +1260,11 @@ ui <- navbarPage(
         selectInput("rtp_metrics", "Metrics", choices = NULL, multiple = TRUE),
         tags$hr(),
         selectInput("rtp_chart_metric", "Chart Metric", choices = NULL),
+        tags$hr(),
+        tags$label("Hide Dates", style = "font-weight:600; margin-bottom:4px; display:block;"),
+        helpText(style = "font-size:11px; color:#6b7280; margin-top:0;",
+                 "Uncheck to remove a date from the table and chart."),
+        uiOutput("rtp_date_checkboxes"),
         width = 3
       ),
       mainPanel(
@@ -1279,7 +1284,6 @@ ui <- navbarPage(
       )
     )
   )
-)
           
 # ---------------------------
 # Server
@@ -2888,7 +2892,66 @@ server <- function(input, output, session) {
     ggplotly(p, tooltip = "text")
   })
 
-  # ---------- RTP Tab ----------
+ # ---------- RTP Tab ----------
+
+  # Metric ordering logic for RTP table
+  order_rtp_metrics <- function(metrics, test_type) {
+    if (length(metrics) == 0) return(metrics)
+    
+    # Priority groups — metrics matching these patterns get pulled to the front
+    # in this order, with their related L/R/Asym siblings kept adjacent
+    priority_patterns <- list(
+      jump_height   = "jump height",
+      peak_power    = "peak power",
+      rsi           = "^rsi"
+    )
+    
+    # For each metric, compute a group key: strip L/R/Left/Right/Asym suffixes
+    # so siblings sort together, then sort by (priority_group, stripped_name)
+    strip_sibling_suffix <- function(m) {
+      m %>%
+        stringr::str_to_lower() %>%
+        stringr::str_replace("\\s*-?\\s*(left|right|\\bl\\b|\\br\\b|asym\\.?|asymmetry)\\s*(\\(%\\))?\\s*$", "") %>%
+        stringr::str_replace("\\s*\\(%\\)\\s*$", "") %>%
+        stringr::str_squish()
+    }
+    
+    get_priority <- function(m) {
+      ml <- stringr::str_to_lower(m)
+      base <- strip_sibling_suffix(m)
+      if (stringr::str_detect(base, "jump height"))                       return(1L)
+      if (stringr::str_detect(base, "peak power"))                        return(2L)
+      if (stringr::str_detect(base, "^rsi"))                              return(3L)
+      if (stringr::str_detect(base, "eccentric.*decel|ecc.*decel"))      return(4L)
+      if (stringr::str_detect(base, "concentric impulse|con.*impulse"))  return(5L)
+      if (stringr::str_detect(base, "force at zero"))                    return(6L)
+      if (stringr::str_detect(base, "countermovement depth"))            return(7L)
+      if (stringr::str_detect(base, "eccentric peak vel|ecc.*peak vel")) return(8L)
+      if (stringr::str_detect(base, "concentric peak vel|con.*peak vel"))return(9L)
+      if (stringr::str_detect(base, "contraction time"))                 return(10L)
+      return(99L)
+    }
+    
+    # Within each group, order: aggregate/overall → Left → Right → Asym
+    get_sibling_order <- function(m) {
+      ml <- stringr::str_to_lower(m)
+      if (stringr::str_detect(ml, "asym"))                              return(4L)
+      if (stringr::str_detect(ml, "\\bleft\\b|\\s-\\sleft$|\\sl\\b"))  return(2L)
+      if (stringr::str_detect(ml, "\\bright\\b|\\s-\\sright$|\\sr\\b")) return(3L)
+      return(1L)   # aggregate / no side qualifier = first
+    }
+    
+    df <- tibble::tibble(
+      metric      = metrics,
+      base        = strip_sibling_suffix(metrics),
+      priority    = vapply(metrics, get_priority, integer(1)),
+      sib_order   = vapply(metrics, get_sibling_order, integer(1))
+    )
+    
+    # stable sort: priority → base name (so all siblings of a group are contiguous) → sibling order
+    df <- df %>% dplyr::arrange(priority, base, sib_order)
+    df$metric
+  }
 
   observe({
     req(nrow(rtp_data) > 0)
@@ -2914,34 +2977,70 @@ server <- function(input, output, session) {
     if (nrow(df) == 0) return(character(0))
     metric_cols <- setdiff(names(df), rtp_id_cols)
     has_data <- sapply(metric_cols, function(m) any(!is.na(df[[m]])))
-    metric_cols[has_data]
+    raw_metrics <- metric_cols[has_data]
+    order_rtp_metrics(raw_metrics, input$rtp_test_type)
+  })
+
+  # Available dates for current player/test
+  rtp_available_dates <- reactive({
+    req(input$rtp_player, input$rtp_test_type)
+    df <- rtp_data %>%
+      filter(name == input$rtp_player, testType == input$rtp_test_type) %>%
+      arrange(date)
+    if (nrow(df) == 0) return(as.Date(character(0)))
+    sort(unique(df$date))
+  })
+
+  # Render date checkboxes in sidebar
+  output$rtp_date_checkboxes <- renderUI({
+    dates <- rtp_available_dates()
+    if (length(dates) == 0) return(helpText("No dates available."))
+    date_labels <- format(dates, "%d-%b-%Y")
+    checkboxGroupInput(
+      "rtp_selected_dates",
+      label    = NULL,
+      choices  = setNames(as.character(dates), date_labels),
+      selected = as.character(dates)   # all checked by default
+    )
+  })
+
+  # Reactive: which dates are currently selected (checked)
+  rtp_filtered_dates <- reactive({
+    req(input$rtp_selected_dates)
+    as.Date(input$rtp_selected_dates)
   })
 
   observeEvent(rtp_available_metrics(), {
     metrics <- rtp_available_metrics()
     updateSelectInput(session, "rtp_metrics", choices = metrics, selected = metrics)
+    
+    # Default chart metric: prefer Jump Height, else first
+    default_chart <- {
+      jh <- grep("jump height", metrics, ignore.case = TRUE, value = TRUE)
+      if (length(jh) > 0) jh[1] else metrics[1]
+    }
     updateSelectInput(session, "rtp_chart_metric",
-                      choices = metrics,
-                      selected = metrics[grep("Jump Height", metrics)[1] %||% 1])
+                      choices  = metrics,
+                      selected = default_chart)
   })
 
   output$rtp_table_title <- renderText({
     req(input$rtp_player, input$rtp_test_type)
-    test_label <- if (input$rtp_test_type == "CMJ") {
-      "Countermovement Jump"
-    } else if (input$rtp_test_type == "SLJ") {
-      "Single Leg Jump"
-    } else {
+    test_label <- switch(input$rtp_test_type,
+      CMJ = "Countermovement Jump",
+      SLJ = "Single Leg Jump",
       input$rtp_test_type
-    }
+    )
     paste0(test_label, " — Best Rep (Jump Height) — ", input$rtp_player)
   })
 
   output$rtp_table <- renderDT({
     req(input$rtp_player, input$rtp_test_type, length(input$rtp_metrics) > 0)
+
     df <- rtp_data %>%
       filter(name == input$rtp_player, testType == input$rtp_test_type) %>%
       arrange(date)
+
     if (nrow(df) == 0) {
       return(DT::datatable(
         data.frame(Message = "No RTP data available for this player/test."),
@@ -2949,33 +3048,50 @@ server <- function(input, output, session) {
       ))
     }
 
+    # Apply date filter
+    selected_dates <- rtp_filtered_dates()
+    df <- df %>% filter(date %in% selected_dates)
+
+    if (nrow(df) == 0) {
+      return(DT::datatable(
+        data.frame(Message = "No data for selected dates."),
+        rownames = FALSE, options = list(dom = "t")
+      ))
+    }
+
     date_labels <- format(df$date, "%d-%b")
 
+    # Use the ordered metrics (already ordered by rtp_available_metrics)
+    ordered_metrics <- input$rtp_metrics  # user can still reorder via the selectInput
+
     df_long <- df %>%
-      select(date, all_of(input$rtp_metrics)) %>%
+      select(date, all_of(ordered_metrics)) %>%
       tidyr::pivot_longer(cols = -date, names_to = "Metric", values_to = "Value") %>%
       mutate(
         date_label = format(date, "%d-%b"),
-        Value = round(Value, 2)
+        Metric     = factor(Metric, levels = ordered_metrics),
+        Value      = round(Value, 2)
       ) %>%
       select(-date) %>%
       tidyr::pivot_wider(names_from = date_label, values_from = Value) %>%
-      # Preserve the column order by date
+      arrange(Metric) %>%
+      mutate(Metric = as.character(Metric)) %>%
+      # Keep only date columns that actually appear (in chronological order)
       select(Metric, all_of(date_labels))
 
     DT::datatable(
       df_long,
-      rownames = FALSE,
+      rownames  = FALSE,
       selection = "none",
-      options = list(
-        scrollX = TRUE,
-        dom = "t",
+      options   = list(
+        scrollX    = TRUE,
+        dom        = "t",
         pageLength = 50,
         columnDefs = list(
           list(targets = 0, className = "dt-nowrap"),
           list(
             targets = seq_len(ncol(df_long) - 1),
-            render = DT::JS(
+            render  = DT::JS(
               "function(data,type,row,meta){
                  if(data===null||data===undefined) return '';
                  var num=Number(data);
@@ -2996,29 +3112,37 @@ server <- function(input, output, session) {
 
   output$rtp_bar_chart <- renderPlotly({
     req(input$rtp_player, input$rtp_test_type, input$rtp_chart_metric)
+
     df <- rtp_data %>%
       filter(name == input$rtp_player, testType == input$rtp_test_type) %>%
       arrange(date)
+
     if (nrow(df) == 0 || !input$rtp_chart_metric %in% names(df)) return(NULL)
+
+    # Apply date filter
+    selected_dates <- rtp_filtered_dates()
+    df <- df %>% filter(date %in% selected_dates)
+
+    if (nrow(df) == 0) return(NULL)
 
     chart_df <- df %>%
       transmute(
         date,
         date_label = format(date, "%d-%b"),
-        value = as.numeric(.data[[input$rtp_chart_metric]])
+        value      = as.numeric(.data[[input$rtp_chart_metric]])
       ) %>%
       filter(!is.na(value))
 
     if (nrow(chart_df) == 0) return(NULL)
 
     plotly::plot_ly(
-      data = chart_df,
-      x = ~reorder(date_label, date),
-      y = ~value,
-      type = "bar",
-      marker = list(color = "#2774AE"),
-      text = ~round(value, 2),
-      textposition = "outside",
+      data          = chart_df,
+      x             = ~reorder(date_label, date),
+      y             = ~value,
+      type          = "bar",
+      marker        = list(color = "#2774AE"),
+      text          = ~round(value, 2),
+      textposition  = "outside",
       hovertemplate = "%{x}<br>%{y:.2f}<extra></extra>"
     ) %>%
       plotly::layout(
@@ -3026,11 +3150,10 @@ server <- function(input, output, session) {
           text = paste0(input$rtp_chart_metric, "<br>",
                         "<sup>", input$rtp_player, " — ", input$rtp_test_type, "</sup>")
         ),
-        xaxis = list(title = "", tickangle = -45),
-        yaxis = list(title = ""),
+        xaxis  = list(title = "", tickangle = -45),
+        yaxis  = list(title = ""),
         margin = list(l = 60, r = 20, t = 80, b = 80)
       )
   })
-}
 
 shinyApp(ui, server)
