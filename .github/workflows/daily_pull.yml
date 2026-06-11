@@ -26,9 +26,6 @@ jobs:
       - name: Checkout code repo
         uses: actions/checkout@v4
 
-      - name: Test failure
-        run: exit 1
-
       - name: Set up R
         uses: r-lib/actions/setup-r@v2
         with:
