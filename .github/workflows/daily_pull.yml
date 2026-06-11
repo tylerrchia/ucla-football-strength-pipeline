@@ -109,6 +109,22 @@ jobs:
           git commit -m "Daily VALD & Catapult data update" || echo "No changes"
           git push
 
+      - name: Send failure email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          to: uclafbstrength@gmail.com
+          from: ${{ secrets.EMAIL_USERNAME }}
+          subject: "❌ UCLA Strength App — ${{ github.job }} failed"
+          body: |
+            Job "${{ github.job }}" failed.
+            
+            View the run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
   deploy:
     needs: run-vald
     # if: needs.run-vald.outputs.data_changed == 'true'
@@ -177,3 +193,19 @@ jobs:
               launch.browser = FALSE
             )
           '
+
+      - name: Send failure email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          to: uclafbstrength@gmail.com
+          from: ${{ secrets.EMAIL_USERNAME }}
+          subject: "❌ UCLA Strength App — ${{ github.job }} failed"
+          body: |
+            Job "${{ github.job }}" failed.
+            
+            View the run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
