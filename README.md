@@ -4,16 +4,9 @@ An automated data pipeline and R/Shiny application built for UCLA Football's
 strength and conditioning staff, ingesting athlete performance data from multiple
 vendor APIs and surfacing it in a daily-updated dashboard used by coaches.
 
-> **About this repository**
-> I was the lead developer who built and maintained this project as the Data Scientist/Engineer for UCLA
-> Football. I have transferred this repository to a UCLA
-> Football organization account, where the coaches continues to host and have new developers run it.
-> This repository is a snapshot of my work through June 2026, preserved for
-> portfolio purposes.
->
-> Athlete names have been replaced with placeholders, and no athlete data,
-> credentials, or private data files are included. The pipeline is therefore not
-> runnable as-is — the workflows are included to show the architecture.
+**About this repository**
+I was the lead developer who built and maintained this project as the Data Scientist/Engineer for UCLA Football. I have transferred this repository to a UCLA Football organization account, where the coaches continues to host and have new developers run it. This repository is a snapshot of my work through June 2026, preserved for portfolio purposes.
+Athlete names have been replaced with placeholders, and no athlete data, credentials, or private data files are included. The pipeline is therefore not runnable as-is — the workflows are included to show the architecture.
 
 ## What it does
 
